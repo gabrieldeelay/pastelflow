@@ -1,0 +1,5 @@
+{
+  "name": "PastelFlow",
+  "description": "A digital stationery style Kanban board with a clean, pastel aesthetic. Features draggable lists and post-its, color customization, and a responsive wrapping layout.",
+  "requestFramePermissions": []
+}
