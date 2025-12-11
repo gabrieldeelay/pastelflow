@@ -24,7 +24,10 @@ function App() {
   return (
     <div className="bg-paper min-h-screen text-pastel-text">
        <WelcomeToast userName={currentProfile.name} />
-       <Board currentProfile={currentProfile} />
+       <Board 
+         currentProfile={currentProfile} 
+         onSwitchProfile={() => setCurrentProfile(null)}
+       />
     </div>
   );
 }

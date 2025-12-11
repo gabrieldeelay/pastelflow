@@ -11,7 +11,7 @@ import {
   rectIntersection,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { Plus } from 'lucide-react';
+import { Plus, LogOut } from 'lucide-react';
 import { Column, Task, Id, PastelColor, Profile } from '../types';
 import List from './List';
 import Card from './Card';
@@ -21,9 +21,10 @@ import { supabase, isSupabaseConfigured } from '../supabaseClient';
 
 interface Props {
   currentProfile: Profile;
+  onSwitchProfile: () => void;
 }
 
-const Board: React.FC<Props> = ({ currentProfile }) => {
+const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [columns, setColumns] = useState<Column[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -349,12 +350,28 @@ const Board: React.FC<Props> = ({ currentProfile }) => {
       {/* Header */}
       <header className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center w-full mb-4">
         <div className="flex items-center gap-4">
-          <img src={currentProfile.avatar} className="w-12 h-12 rounded-full border-2 border-white shadow-md" alt="Avatar"/>
+          <div className="group relative">
+            <img 
+                src={currentProfile.avatar} 
+                className="w-12 h-12 rounded-full border-2 border-white shadow-md cursor-pointer" 
+                alt="Avatar"
+            />
+            {/* Tooltip-style info or just name next to it */}
+          </div>
           <div>
-            <h1 className="text-4xl font-black text-stone-700 tracking-tight">
+            <h1 className="text-4xl font-black text-stone-700 tracking-tight leading-none">
               Pastel<span className="text-red-300">Flow</span>.
             </h1>
           </div>
+          
+          {/* Profile Switcher / Logout */}
+          <button 
+            onClick={onSwitchProfile}
+            className="ml-2 p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-200/50 rounded-full transition-colors"
+            title="Trocar Perfil"
+          >
+            <LogOut size={20} />
+          </button>
         </div>
         <button
           onClick={createColumn}
