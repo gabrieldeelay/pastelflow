@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Plus, Trash2, Check, Clock, Flag, Palette } from 'lucide-react';
 import { AgendaEvent, DayNote } from '../types';
@@ -111,8 +110,14 @@ const DayDetailModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-stone-900/40 backdrop-blur-sm p-4 animate-in fade-in">
-        <div className="bg-white w-full max-w-2xl h-[80vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative border border-stone-200">
+    <div 
+        className="fixed inset-0 z-[150] flex items-center justify-center bg-stone-900/40 backdrop-blur-sm p-4 animate-in fade-in"
+        onClick={onClose}
+    >
+        <div 
+            className="bg-white w-full max-w-2xl h-[80vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative border border-stone-200"
+            onClick={(e) => e.stopPropagation()}
+        >
             
             {/* Header */}
             <div className="p-6 pb-4 border-b border-stone-100 flex items-start justify-between bg-stone-50/50">
@@ -227,7 +232,7 @@ const DayDetailModal: React.FC<Props> = ({
 
                                             {activeColorId === evt.id && (
                                                 <div 
-                                                    className="absolute right-0 bottom-full mb-2 bg-white p-2 rounded-xl shadow-xl border border-stone-100 z-50 grid grid-cols-4 gap-1 w-32 animate-in fade-in zoom-in-95"
+                                                    className="absolute right-0 top-full mt-2 bg-white p-2 rounded-xl shadow-xl border border-stone-100 z-[200] grid grid-cols-4 gap-1 w-32 animate-in fade-in zoom-in-95 origin-top-right"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                      {COLOR_KEYS.map(key => (

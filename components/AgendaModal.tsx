@@ -306,8 +306,17 @@ const AgendaModal: React.FC<Props> = ({
             />
         )}
 
-        <div className={`fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm fade-in p-4 sm:p-6 ${detailDate ? 'hidden' : ''}`}>
-        <div className="bg-[#fdfbf7] w-full max-w-6xl h-[85vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative">
+        {/* AGENDA MODAL BACKDROP */}
+        <div 
+            className={`fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm fade-in p-4 sm:p-6 ${detailDate ? 'hidden' : ''}`}
+            onClick={onClose}
+        >
+        
+        {/* AGENDA CONTENT */}
+        <div 
+            className="bg-[#fdfbf7] w-full max-w-6xl h-[85vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
+            onClick={(e) => e.stopPropagation()} // Prevent close when clicking content
+        >
             
             {/* HEADER */}
             <div className="flex items-center justify-between p-6 border-b border-stone-200 bg-white/50 backdrop-blur-md">
@@ -373,8 +382,14 @@ const AgendaModal: React.FC<Props> = ({
 
                 {/* CREATE MODAL OVERLAY */}
                 {newEventMode && (
-                    <div className="absolute inset-0 z-10 bg-white/90 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in zoom-in-95">
-                        <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-100 p-8">
+                    <div 
+                        className="absolute inset-0 z-10 bg-white/90 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in zoom-in-95"
+                        onClick={() => setNewEventMode(false)}
+                    >
+                        <div 
+                            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-100 p-8"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             <h3 className="text-xl font-bold text-stone-700 mb-6 flex items-center gap-2">
                                 <Calendar className="text-stone-400" /> Novo Agendamento
                             </h3>

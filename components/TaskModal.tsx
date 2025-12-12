@@ -420,9 +420,13 @@ const TaskModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm fade-in p-4 sm:p-6">
+    <div 
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm fade-in p-4 sm:p-6"
+      onClick={handleManualSave}
+    >
       <div 
         className="bg-[#fdfbf7] w-full max-w-5xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header Color Strip with Status */}
         <div 
