@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { Lock, ArrowRight } from 'lucide-react';
+import { Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 
 interface Props {
   onSuccess: () => void;
@@ -29,7 +30,7 @@ const AccessGate: React.FC<Props> = ({ onSuccess }) => {
         <h1 className="text-2xl font-bold text-stone-700 mb-2">Acesso Restrito</h1>
         <p className="text-stone-500 mb-8">Digite o código secreto para acessar seus projetos.</p>
 
-        <form onSubmit={handleSubmit} className="relative">
+        <form onSubmit={handleSubmit} className="relative mb-8">
           <input
             type="password"
             value={code}
@@ -47,6 +48,17 @@ const AccessGate: React.FC<Props> = ({ onSuccess }) => {
             <ArrowRight size={20} />
           </button>
         </form>
+
+        <div className="pt-6 border-t border-stone-50 flex flex-col items-center justify-center gap-2">
+            <div className="flex items-center gap-1.5 text-stone-400">
+                <ShieldCheck size={14} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">Ambiente Seguro</span>
+            </div>
+            <p className="text-xs text-stone-400">
+                Este sistema é de uso exclusivo do <span className="font-bold text-stone-600">Grupo A.C.</span>
+            </p>
+        </div>
+
       </div>
       <style>{`
         @keyframes shake {
