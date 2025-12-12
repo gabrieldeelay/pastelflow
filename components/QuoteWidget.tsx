@@ -47,6 +47,51 @@ const QuoteWidget: React.FC<Props> = ({ onRemove, initialPosition, onLayoutChang
       setShownIndices(new Set([idx]));
   }, []);
 
+  // --- SAFETY BOUNDS CHECK (Rescue Mission) ---
+  useEffect(() => {
+    const ensureVisible = () => {
+        if (!widgetRef.current) return;
+        
+        const rect = widgetRef.current.getBoundingClientRect();
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+        const margin = 20;
+
+        setPosition(prev => {
+            let nextX = prev.x;
+            let nextY = prev.y;
+            let corrected = false;
+
+            // Check Right/Bottom edges
+            // Use local rect width/height if available, otherwise fallback
+            const w = rect.width || 340;
+            const h = rect.height || 200;
+
+            if (nextX + w > winW) { nextX = Math.max(margin, winW - w - margin); corrected = true; }
+            if (nextY + h > winH) { nextY = Math.max(margin, winH - h - margin); corrected = true; }
+            
+            // Check Left/Top edges
+            if (nextX < 0) { nextX = margin; corrected = true; }
+            if (nextY < 0) { nextY = margin; corrected = true; }
+
+            if (corrected) {
+                onLayoutChange(nextX, nextY); // Sync change
+                return { x: nextX, y: nextY };
+            }
+            return prev;
+        });
+    };
+
+    // Run shortly after mount to allow layout to settle, and on resize
+    const timer = setTimeout(ensureVisible, 100);
+    window.addEventListener('resize', ensureVisible);
+    
+    return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', ensureVisible);
+    };
+  }, []); // Run on mount
+
   const handleRefresh = () => {
       if (isAnimating) return;
       setIsAnimating(true);
@@ -90,7 +135,7 @@ const QuoteWidget: React.FC<Props> = ({ onRemove, initialPosition, onLayoutChang
         const rawY = e.clientY - dragOffset.current.y;
 
         // Screen Boundaries Constraints
-        const widgetWidth = widgetRef.current?.offsetWidth || 320;
+        const widgetWidth = widgetRef.current?.offsetWidth || 340;
         const widgetHeight = widgetRef.current?.offsetHeight || 200;
         const maxX = window.innerWidth - widgetWidth;
         const maxY = window.innerHeight - widgetHeight;

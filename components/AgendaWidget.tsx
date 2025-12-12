@@ -21,6 +21,7 @@ const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPositi
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   
+  const widgetRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
   
@@ -35,6 +36,48 @@ const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPositi
              d.getMonth() === today.getMonth() && 
              d.getFullYear() === today.getFullYear();
   }).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+  // --- SAFETY BOUNDS CHECK (Rescue Mission) ---
+  useEffect(() => {
+    const ensureVisible = () => {
+        if (!widgetRef.current) return;
+        
+        const rect = widgetRef.current.getBoundingClientRect();
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+        const margin = 20;
+
+        setPosition(prev => {
+            let nextX = prev.x;
+            let nextY = prev.y;
+            let corrected = false;
+
+            // Check Right/Bottom edges
+            const w = size.w || rect.width || 288;
+            const h = size.h || rect.height || 320;
+
+            if (nextX + w > winW) { nextX = Math.max(margin, winW - w - margin); corrected = true; }
+            if (nextY + h > winH) { nextY = Math.max(margin, winH - h - margin); corrected = true; }
+            
+            // Check Left/Top edges
+            if (nextX < 0) { nextX = margin; corrected = true; }
+            if (nextY < 0) { nextY = margin; corrected = true; }
+
+            if (corrected) {
+                onLayoutChange(nextX, nextY, w, h);
+                return { x: nextX, y: nextY };
+            }
+            return prev;
+        });
+    };
+
+    const timer = setTimeout(ensureVisible, 100);
+    window.addEventListener('resize', ensureVisible);
+    return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', ensureVisible);
+    };
+  }, []); // Run once on mount
 
   // --- DRAG LOGIC ---
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -62,8 +105,19 @@ const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPositi
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDragging) {
-        const newX = e.clientX - dragOffset.current.x;
-        const newY = e.clientY - dragOffset.current.y;
+        const rawX = e.clientX - dragOffset.current.x;
+        const rawY = e.clientY - dragOffset.current.y;
+
+        // Screen Boundaries
+        const widgetWidth = widgetRef.current?.offsetWidth || size.w;
+        const widgetHeight = widgetRef.current?.offsetHeight || size.h;
+        const maxX = window.innerWidth - widgetWidth;
+        const maxY = window.innerHeight - widgetHeight;
+
+        // Clamp values
+        const newX = Math.max(0, Math.min(rawX, maxX));
+        const newY = Math.max(0, Math.min(rawY, maxY));
+
         setPosition({ x: newX, y: newY });
       }
       if (isResizing) {
@@ -97,6 +151,7 @@ const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPositi
 
   return (
     <div 
+      ref={widgetRef}
       style={{ 
         position: 'absolute', 
         left: position.x, 

@@ -655,8 +655,16 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                     }
                 }}
                 updateColumnTitle={(id, t) => {
-                    setColumns(prev => prev.map(c => c.id === id ? {...c, title: t} : c));
-                    supabase.from('columns').update({ title: t }).eq('id', id);
+                    const newCols = columns.map(c => c.id === id ? {...c, title: t} : c);
+                    setColumns(newCols);
+                    if (isSupabaseConfigured()) {
+                         supabase.from('columns').update({ title: t }).eq('id', id).then();
+                    } else {
+                         // Force save to local storage
+                         const key = `pastel_data_${currentProfile.id}`;
+                         const currentData = JSON.parse(localStorage.getItem(key) || '{"columns":[],"tasks":[]}');
+                         localStorage.setItem(key, JSON.stringify({ ...currentData, columns: newCols }));
+                    }
                 }}
                 updateColumnColor={(id, c) => {
                     setColumns(prev => prev.map(col => col.id === id ? {...col, color: c} : col));
