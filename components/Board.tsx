@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -11,10 +12,11 @@ import {
   rectIntersection,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { Plus, LogOut } from 'lucide-react';
+import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote } from 'lucide-react';
 import { Column, Task, Id, PastelColor, Profile } from '../types';
 import List from './List';
 import Card from './Card';
+import TaskModal from './TaskModal';
 import { createPortal } from 'react-dom';
 import { PLACEHOLDER_TEXTS, COLORS } from '../constants';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
@@ -27,10 +29,19 @@ interface Props {
 const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [columns, setColumns] = useState<Column[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [activeColumn, setActiveColumn] = useState<Column | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+
+  // Task Modal State
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Add Button Menu State
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -47,51 +58,61 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     const fetchData = async () => {
       setLoading(true);
       if (!isSupabaseConfigured()) {
-         // Local Storage Mock
+         // Local Storage Mock - Strictly scoped to currentProfile.id
          const key = `pastel_data_${currentProfile.id}`;
          const saved = localStorage.getItem(key);
          if (saved) {
              const data = JSON.parse(saved);
-             setColumns(data.columns);
-             setTasks(data.tasks);
+             setColumns(data.columns || []);
+             setTasks(data.tasks || []);
          } else {
-             // Defaults
+             // Defaults if no data for this profile yet
              const defaultCols = [
-                { id: 'todo', title: 'A Fazer' },
-                { id: 'doing', title: 'Em Andamento' },
-                { id: 'done', title: 'Concluído' },
+                { id: `todo_${currentProfile.id}`, title: 'A Fazer' },
+                { id: `doing_${currentProfile.id}`, title: 'Em Andamento' },
+                { id: `done_${currentProfile.id}`, title: 'Concluído' },
              ];
-             setColumns(defaultCols);
+             setColumns(defaultCols as any);
              setTasks([]);
+             localStorage.setItem(key, JSON.stringify({ columns: defaultCols, tasks: [] }));
          }
+         
+         // Mock profiles for sharing
+         const savedProfiles = localStorage.getItem('mock_profiles');
+         if(savedProfiles) setProfiles(JSON.parse(savedProfiles));
+
          setLoading(false);
          return;
       }
 
+      // Fetch Columns
       const { data: colsData } = await supabase
         .from('columns')
         .select('*')
         .eq('profile_id', currentProfile.id)
         .order('position');
       
+      // Fetch Tasks
       const { data: tasksData } = await supabase
         .from('tasks')
         .select('*')
         .in('column_id', colsData?.map(c => c.id) || []);
 
+      // Fetch All Profiles (for sharing)
+      const { data: profilesData } = await supabase.from('profiles').select('*');
+      if (profilesData) setProfiles(profilesData);
+
       if (colsData && colsData.length > 0) {
         setColumns(colsData);
         setTasks(tasksData || []);
       } else {
-         // Init default cols if empty
+         // Init default cols if empty in DB
          const defaultCols = [
             { id: crypto.randomUUID(), profile_id: currentProfile.id, title: 'A Fazer', position: 0 },
             { id: crypto.randomUUID(), profile_id: currentProfile.id, title: 'Em Andamento', position: 1 },
             { id: crypto.randomUUID(), profile_id: currentProfile.id, title: 'Concluído', position: 2 },
          ];
-         // Optimistic
          setColumns(defaultCols as any); 
-         // Save to DB
          await supabase.from('columns').insert(defaultCols);
       }
       setLoading(false);
@@ -100,6 +121,18 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     fetchData();
   }, [currentProfile.id]);
 
+  // Click outside add menu
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+        if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
+            setShowAddMenu(false);
+        }
+    }
+    if (showAddMenu) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAddMenu]);
+
+
   // Sync Data Helper
   const persistData = async (newColumns: Column[], newTasks: Task[]) => {
       if (!isSupabaseConfigured()) {
@@ -107,29 +140,31 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           localStorage.setItem(key, JSON.stringify({ columns: newColumns, tasks: newTasks }));
           return;
       }
-
-      // Simplified persistence: Upsert relevant items
-      // In a production app, you'd optimize this to only update changed items
-      // For this demo, we assume the DND interactions are infrequent enough or we just fire and forget
       
-      // Upsert Columns (for position updates)
+      // Upsert Columns
       const colsToSave = newColumns.map((c, idx) => ({ 
           id: c.id, 
           title: c.title, 
           position: idx, 
+          color: c.color,
           profile_id: currentProfile.id 
       }));
-      await supabase.from('columns').upsert(colsToSave);
+      if (colsToSave.length > 0) {
+          await supabase.from('columns').upsert(colsToSave);
+      }
 
-      // Upsert Tasks (for position/col updates)
+      // Upsert Tasks
       const tasksToSave = newTasks.map((t, idx) => ({
           id: t.id,
           column_id: t.columnId,
           content: t.content,
+          description: t.description,
+          is_checklist: t.isChecklist,
+          attachments: t.attachments,
           color: t.color,
           position: idx 
       }));
-      // We limit upsert to changed ones ideally, but here we just verify integrity
+
       if (tasksToSave.length > 0) {
          await supabase.from('tasks').upsert(tasksToSave);
       }
@@ -139,12 +174,13 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const generateId = () => isSupabaseConfigured() ? crypto.randomUUID() : Math.floor(Math.random() * 100001).toString();
 
   const createColumn = async () => {
-    const newCol = {
+    const newCol: Column = {
       id: generateId(),
-      title: `Nova Lista ${columns.length + 1}`,
+      title: `Nova Lista`,
     };
     const updatedCols = [...columns, newCol];
     setColumns(updatedCols);
+    setShowAddMenu(false);
     
     if (isSupabaseConfigured()) {
         await supabase.from('columns').insert({
@@ -177,15 +213,25 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       return { ...col, title };
     });
     setColumns(updatedCols);
-    
-    // Debounce save or just save on blur? React state is instant.
-    // We'll update DB here (fire & forget)
     if(isSupabaseConfigured()) {
         await supabase.from('columns').update({ title }).eq('id', id);
     } else {
         persistData(updatedCols, tasks);
     }
   };
+
+  const updateColumnColor = async (id: Id, color: PastelColor) => {
+    const updatedCols = columns.map((col) => {
+      if (col.id !== id) return col;
+      return { ...col, color };
+    });
+    setColumns(updatedCols);
+    if(isSupabaseConfigured()) {
+        await supabase.from('columns').update({ color }).eq('id', id);
+    } else {
+        persistData(updatedCols, tasks);
+    }
+  }
 
   const createTask = async (columnId: Id) => {
     const randomText = PLACEHOLDER_TEXTS[Math.floor(Math.random() * PLACEHOLDER_TEXTS.length)];
@@ -197,6 +243,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     };
     const updatedTasks = [...tasks, newTask];
     setTasks(updatedTasks);
+    setShowAddMenu(false);
 
     if (isSupabaseConfigured()) {
         await supabase.from('tasks').insert({
@@ -211,9 +258,20 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     }
   };
 
+  const createFloatingTask = () => {
+    if (columns.length === 0) {
+        alert("Crie uma lista primeiro para adicionar notas.");
+        return;
+    }
+    // Add to first column
+    createTask(columns[0].id);
+  };
+
   const deleteTask = async (id: Id) => {
     const updatedTasks = tasks.filter((task) => task.id !== id);
     setTasks(updatedTasks);
+    if (selectedTask?.id === id) setIsModalOpen(false); // Close modal if deleted
+
     if(isSupabaseConfigured()) {
         await supabase.from('tasks').delete().eq('id', id);
     } else {
@@ -221,31 +279,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     }
   };
 
-  const updateTaskContent = async (id: Id, content: string) => {
-    const updatedTasks = tasks.map((task) => {
-      if (task.id !== id) return task;
-      return { ...task, content };
-    });
-    setTasks(updatedTasks);
-    if(isSupabaseConfigured()) {
-        await supabase.from('tasks').update({ content }).eq('id', id);
-    } else {
-        persistData(columns, updatedTasks);
-    }
-  };
-
-  const updateTaskColor = async (id: Id, color: PastelColor) => {
-    const updatedTasks = tasks.map((task) => {
-      if (task.id !== id) return task;
-      return { ...task, color };
-    });
-    setTasks(updatedTasks);
-    if(isSupabaseConfigured()) {
-        await supabase.from('tasks').update({ color }).eq('id', id);
-    } else {
-        persistData(columns, updatedTasks);
-    }
-  };
+  const updateTaskFull = async (updatedTask: Task) => {
+      const updatedTasks = tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t));
+      setTasks(updatedTasks);
+      persistData(columns, updatedTasks); // This handles specific field updates via upsert
+  }
 
   // DnD Handlers
   const onDragStart = (event: DragStartEvent) => {
@@ -331,6 +369,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     }
   };
 
+  const handleTaskClick = (task: Task) => {
+      setSelectedTask(task);
+      setIsModalOpen(true);
+  };
+
   if (loading) {
      return <div className="flex w-full h-screen items-center justify-center text-pastel-text">Carregando seus planos...</div>;
   }
@@ -347,6 +390,19 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         gap-8
         fade-in
     ">
+      {/* Task Modal */}
+      {selectedTask && (
+        <TaskModal 
+            task={selectedTask}
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            onUpdate={updateTaskFull}
+            onDelete={deleteTask}
+            profiles={profiles}
+            currentProfileId={currentProfile.id}
+        />
+      )}
+
       {/* Header */}
       <header className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center w-full mb-4">
         <div className="flex items-center gap-4">
@@ -356,7 +412,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                 className="w-12 h-12 rounded-full border-2 border-white shadow-md cursor-pointer" 
                 alt="Avatar"
             />
-            {/* Tooltip-style info or just name next to it */}
           </div>
           <div>
             <h1 className="text-4xl font-black text-stone-700 tracking-tight leading-none">
@@ -373,29 +428,53 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
             <LogOut size={20} />
           </button>
         </div>
-        <button
-          onClick={createColumn}
-          className="
-            flex
-            items-center
-            gap-2
-            bg-stone-800
-            hover:bg-stone-700
-            text-white
-            px-6
-            py-3
-            rounded-xl
-            shadow-lg
-            shadow-stone-200
-            transition-all
-            transform
-            active:scale-95
-            font-bold
-          "
-        >
-          <Plus size={20} />
-          Nova Lista
-        </button>
+        
+        {/* ADD BUTTON WITH DROPDOWN */}
+        <div className="relative" ref={addMenuRef}>
+            <button
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            className="
+                flex
+                items-center
+                gap-2
+                bg-stone-800
+                hover:bg-stone-700
+                text-white
+                px-6
+                py-3
+                rounded-xl
+                shadow-lg
+                shadow-stone-200
+                transition-all
+                transform
+                active:scale-95
+                font-bold
+            "
+            >
+            <Plus size={20} />
+            Adicionar
+            <ChevronDown size={16} className={`transition-transform ${showAddMenu ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showAddMenu && (
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
+                    <button 
+                        onClick={createColumn}
+                        className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"
+                    >
+                        <div className="bg-blue-100 p-1 rounded text-blue-600"><ListIcon size={18} /></div>
+                        Nova Lista
+                    </button>
+                    <button 
+                        onClick={createFloatingTask}
+                        className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"
+                    >
+                        <div className="bg-yellow-100 p-1 rounded text-yellow-600"><StickyNote size={18} /></div>
+                        Nova Nota
+                    </button>
+                </div>
+            )}
+        </div>
       </header>
 
       {/* Main Board Area */}
@@ -416,9 +495,18 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                 createTask={createTask}
                 deleteColumn={deleteColumn}
                 updateColumnTitle={updateColumnTitle}
+                updateColumnColor={updateColumnColor}
                 deleteTask={deleteTask}
-                updateTaskColor={updateTaskColor}
-                updateTaskContent={updateTaskContent}
+                updateTaskColor={(id, color) => {
+                     // Backward compatibility for list generic update, though now handled in modal mostly
+                     const t = tasks.find(t => t.id === id);
+                     if(t) updateTaskFull({...t, color});
+                }}
+                updateTaskContent={(id, content) => {
+                     const t = tasks.find(t => t.id === id);
+                     if(t) updateTaskFull({...t, content});
+                }}
+                onTaskClick={handleTaskClick}
               />
             ))}
           </SortableContext>
@@ -434,17 +522,17 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                 createTask={createTask}
                 deleteColumn={deleteColumn}
                 updateColumnTitle={updateColumnTitle}
+                updateColumnColor={updateColumnColor}
                 deleteTask={deleteTask}
-                updateTaskColor={updateTaskColor}
-                updateTaskContent={updateTaskContent}
+                updateTaskColor={() => {}}
+                updateTaskContent={() => {}}
+                onTaskClick={() => {}}
               />
             )}
             {activeTask && (
               <Card
                 task={activeTask}
-                deleteTask={deleteTask}
-                updateTaskColor={updateTaskColor}
-                updateTaskContent={updateTaskContent}
+                onClick={() => {}}
               />
             )}
           </DragOverlay>,

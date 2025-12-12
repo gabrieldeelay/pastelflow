@@ -1,17 +1,30 @@
+
 export type Id = string | number;
 
 export type PastelColor = 'pink' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange';
+
+export interface Attachment {
+  id: string;
+  name: string;
+  url: string;
+  type: 'link' | 'file';
+}
 
 export interface Task {
   id: Id;
   columnId: Id;
   content: string;
+  description?: string;
   color: PastelColor;
+  attachments?: Attachment[];
+  isChecklist?: boolean; // Toggles between plain text description or checkbox mode
+  checkedItems?: string[]; // IDs or indices of checked lines if using checklist
 }
 
 export interface Column {
   id: Id;
   title: string;
+  color?: PastelColor; // New: Columns can have colors now
 }
 
 export interface Profile {

@@ -1,19 +1,20 @@
-import React, { useMemo, useState } from 'react';
+
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, Trash2, MoreHorizontal } from 'lucide-react';
-import { Column, Task, Id } from '../types';
+import { Plus, Trash2, MoreHorizontal, Palette } from 'lucide-react';
+import { Column, Task, Id, PastelColor } from '../types';
 import Card from './Card';
+import { COLUMN_COLORS, COLOR_KEYS, COLOR_HEX } from '../constants';
 
 interface Props {
   column: Column;
   tasks: Task[];
   deleteColumn: (id: Id) => void;
   updateColumnTitle: (id: Id, title: string) => void;
+  updateColumnColor: (id: Id, color: PastelColor) => void;
   createTask: (columnId: Id) => void;
-  deleteTask: (id: Id) => void;
-  updateTaskColor: (id: Id, color: any) => void;
-  updateTaskContent: (id: Id, content: string) => void;
+  onTaskClick: (task: Task) => void;
 }
 
 const List: React.FC<Props> = ({
@@ -21,12 +22,13 @@ const List: React.FC<Props> = ({
   tasks,
   deleteColumn,
   updateColumnTitle,
+  updateColumnColor,
   createTask,
-  deleteTask,
-  updateTaskColor,
-  updateTaskContent,
+  onTaskClick
 }) => {
   const [editMode, setEditMode] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
 
@@ -50,6 +52,19 @@ const List: React.FC<Props> = ({
     transition,
     transform: CSS.Transform.toString(transform),
   };
+
+  // Click outside to close menu
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+    if (showMenu) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMenu]);
+
+  const columnColorClass = column.color ? COLUMN_COLORS[column.color] : 'bg-stone-100/50 border-stone-200/60';
 
   if (isDragging) {
     return (
@@ -77,25 +92,25 @@ const List: React.FC<Props> = ({
     <div
       ref={setNodeRef}
       style={style}
-      className="
+      className={`
         w-[300px]
         h-fit
         min-h-[150px]
-        bg-white/60
-        backdrop-blur-sm
         rounded-2xl
         flex
         flex-col
         shadow-sm
         border
-        border-stone-200/60
-      "
+        backdrop-blur-sm
+        transition-colors
+        duration-300
+        ${columnColorClass}
+      `}
     >
       {/* List Header */}
       <div
         {...attributes}
         {...listeners}
-        onClick={() => setEditMode(true)}
         className="
           p-4
           font-bold
@@ -108,13 +123,13 @@ const List: React.FC<Props> = ({
           rounded-t-2xl
         "
       >
-        <div className="flex gap-2 items-center flex-1">
+        <div className="flex gap-2 items-center flex-1" onClick={() => setEditMode(true)}>
           {!editMode ? (
-            <span className="text-lg px-2 truncate w-full">{column.title}</span>
+            <span className="text-lg px-2 truncate w-full cursor-text">{column.title}</span>
           ) : (
             <input
               className="
-                bg-white
+                bg-white/50
                 focus:ring-2
                 focus:ring-stone-200
                 border
@@ -139,24 +154,51 @@ const List: React.FC<Props> = ({
           )}
         </div>
         
-        {/* Delete Column Button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            deleteColumn(column.id);
-          }}
-          className="
-            ml-2
-            p-2
-            rounded-full
-            text-stone-400
-            hover:text-red-500
-            hover:bg-red-50
-            transition-colors
-          "
-        >
-          <Trash2 size={16} />
-        </button>
+        {/* Menu Button */}
+        <div className="relative" ref={menuRef}>
+            <button
+            onClick={(e) => {
+                e.stopPropagation();
+                setShowMenu(!showMenu);
+            }}
+            className="p-2 rounded-full text-stone-400 hover:text-stone-600 hover:bg-black/5 transition-colors"
+            >
+             <MoreHorizontal size={18} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showMenu && (
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-20 animate-in fade-in zoom-in duration-200">
+                    <div className="p-2">
+                        <p className="text-xs font-bold text-stone-400 uppercase mb-2">Cor da Lista</p>
+                        <div className="flex flex-wrap gap-1">
+                            {COLOR_KEYS.map(k => (
+                                <button
+                                    key={k}
+                                    onClick={() => updateColumnColor(column.id, k)}
+                                    className="w-6 h-6 rounded-full border border-stone-200 hover:scale-110 transition-transform"
+                                    style={{ backgroundColor: COLOR_HEX[k] }}
+                                />
+                            ))}
+                            <button 
+                                onClick={() => updateColumnColor(column.id, undefined as any)} 
+                                className="w-6 h-6 rounded-full border border-stone-200 bg-stone-50 hover:scale-110 flex items-center justify-center"
+                                title="Padrão"
+                            >
+                                <div className="w-3 h-0.5 bg-stone-400 -rotate-45"></div>
+                            </button>
+                        </div>
+                    </div>
+                    <div className="h-px bg-stone-100 my-1" />
+                    <button
+                        onClick={() => deleteColumn(column.id)}
+                        className="w-full text-left flex items-center gap-2 p-2 text-red-500 hover:bg-red-50 rounded-lg text-sm"
+                    >
+                        <Trash2 size={14} /> Excluir Lista
+                    </button>
+                </div>
+            )}
+        </div>
       </div>
 
       {/* Tasks Container */}
@@ -166,9 +208,7 @@ const List: React.FC<Props> = ({
             <Card
               key={task.id}
               task={task}
-              deleteTask={deleteTask}
-              updateTaskColor={updateTaskColor}
-              updateTaskContent={updateTaskContent}
+              onClick={() => onTaskClick(task)}
             />
           ))}
         </SortableContext>
@@ -184,12 +224,12 @@ const List: React.FC<Props> = ({
             justify-center
             border-2
             border-dashed
-            border-stone-200
+            border-stone-400/20
             rounded-xl
             p-3
             w-full
-            hover:bg-stone-50
-            hover:border-stone-300
+            hover:bg-white/40
+            hover:border-stone-400/40
             text-stone-500
             hover:text-stone-700
             transition-all
