@@ -12,7 +12,7 @@ import {
   rectIntersection,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote } from 'lucide-react';
+import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle } from 'lucide-react';
 import { Column, Task, Id, PastelColor, Profile } from '../types';
 import List from './List';
 import Card from './Card';
@@ -63,12 +63,11 @@ const unpackTaskFromDB = (dbTask: any): Partial<Task> => {
   };
 };
 
-// Stable sort function: Primary by Position, Secondary by ID (string comparison)
+// Stable sort function
 const stableSortColumns = (cols: Column[]) => {
     return [...cols].sort((a, b) => {
         const posDiff = (a.position || 0) - (b.position || 0);
         if (posDiff !== 0) return posDiff;
-        // Fallback to ID for stable sort if positions are equal (legacy data)
         return String(a.id).localeCompare(String(b.id));
     });
 };
@@ -78,6 +77,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [activeColumn, setActiveColumn] = useState<Column | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -104,7 +104,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
   // --- PERSISTENCE HELPERS ---
 
-  // 1. Save Column ORDER ONLY (used after drag)
   const saveColumnOrder = async (newColumns: Column[]) => {
       if (!isSupabaseConfigured()) {
           const key = `pastel_data_${currentProfile.id}`;
@@ -113,7 +112,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           return;
       }
 
-      // Prepare payload: only ID and Position
       const updates = newColumns.map((col, index) => ({
           id: col.id,
           position: index,
@@ -124,12 +122,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
       const { error } = await supabase.from('columns').upsert(updates);
       if (error) {
-          console.error("ERRO SUPABASE (Salvar Ordem):", error.message, error.details, error.hint);
-          // Optional: Add toast here
+          console.error("ERRO SUPABASE (Salvar Ordem):", JSON.stringify(error, null, 2));
       }
   };
 
-  // 2. Save Single Column Attribute (Color or Title) - No reordering
   const saveColumnAttribute = async (id: Id, updates: Partial<Column>) => {
       if (!isSupabaseConfigured()) {
           const key = `pastel_data_${currentProfile.id}`;
@@ -141,11 +137,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
       const { error } = await supabase.from('columns').update(updates).eq('id', id);
       if (error) {
-          console.error("ERRO SUPABASE (Atualizar Coluna):", error.message);
+          console.error("ERRO SUPABASE (Atualizar Coluna):", JSON.stringify(error, null, 2));
       }
   };
 
-  // 3. Save Task Order/Column Move
   const saveTaskMoves = async (newTasks: Task[]) => {
       if (!isSupabaseConfigured()) {
           const key = `pastel_data_${currentProfile.id}`;
@@ -164,7 +159,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
       const { error } = await supabase.from('tasks').upsert(updates);
       if (error) {
-          console.error("ERRO SUPABASE (Salvar Tarefas):", error.message);
+          console.error("ERRO SUPABASE (Salvar Tarefas):", JSON.stringify(error, null, 2));
       }
   };
 
@@ -172,7 +167,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
+      setErrorMsg(null);
+      
       if (!isSupabaseConfigured()) {
+         // Local Storage Logic
          const key = `pastel_data_${currentProfile.id}`;
          const saved = localStorage.getItem(key);
          if (saved) {
@@ -196,14 +194,18 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       }
 
       try {
-        // Explicitly order by position ascending
+        if (!currentProfile?.id) throw new Error("ID do perfil inválido");
+
         const { data: colsData, error: colsError } = await supabase
           .from('columns')
           .select('*')
           .eq('profile_id', currentProfile.id)
           .order('position', { ascending: true });
         
-        if (colsError) throw colsError;
+        if (colsError) {
+            console.error("Error fetching columns:", JSON.stringify(colsError, null, 2));
+            throw colsError;
+        }
 
         let loadedTasks: Task[] = [];
         if (colsData && colsData.length > 0) {
@@ -213,7 +215,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
               .in('column_id', colsData.map(c => c.id))
               .order('position', { ascending: true });
             
-            if (tasksError) throw tasksError;
+            if (tasksError) {
+                console.error("Error fetching tasks:", JSON.stringify(tasksError, null, 2));
+                throw tasksError;
+            }
             
             if (tasksData) {
                 loadedTasks = tasksData.map((t: any) => {
@@ -238,11 +243,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
               color: c.color,
               position: c.position || 0
           }));
-          // Use stable sort
           setColumns(stableSortColumns(mappedCols));
           setTasks(loadedTasks);
         } else {
-           // Default Init
+           // Create default columns in DB if none exist
            const defaultCols = [
               { profile_id: currentProfile.id, title: 'A Fazer', position: 0, color: 'blue' },
               { profile_id: currentProfile.id, title: 'Em Andamento', position: 1, color: 'yellow' },
@@ -254,7 +258,8 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
               .select();
 
            if (insertError) {
-               console.error("Error creating default columns:", insertError);
+               console.error("Error creating default columns:", JSON.stringify(insertError, null, 2));
+               // Fallback: Don't block UI, just empty
            } else if (newCols) {
                const mapped = newCols.map((c: any) => ({
                    id: c.id, 
@@ -267,7 +272,8 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
            }
         }
       } catch (error: any) {
-        console.error("Error loading board:", error);
+        console.error("Error loading board full catch:", error);
+        setErrorMsg("Erro ao carregar o quadro. Verifique se as tabelas foram criadas no Supabase.");
       } finally {
         setLoading(false);
       }
@@ -281,98 +287,45 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     if (!isSupabaseConfigured()) return;
 
     const channel = supabase.channel(`board_sync_${currentProfile.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'columns' },
-        (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'columns' }, (payload) => {
           if (payload.eventType === 'INSERT') {
             const newCol = payload.new as any;
             if (String(newCol.profile_id) === String(currentProfile.id)) {
-                setColumns((prev) => {
+                setColumns(prev => {
                     if (prev.some(c => String(c.id) === String(newCol.id))) return prev;
-                    const c: Column = { 
-                        id: newCol.id, 
-                        title: newCol.title, 
-                        color: newCol.color, 
-                        position: newCol.position || 0
-                    };
-                    return stableSortColumns([...prev, c]); 
+                    return stableSortColumns([...prev, { id: newCol.id, title: newCol.title, color: newCol.color, position: newCol.position || 0 }]);
                 });
             }
           } else if (payload.eventType === 'UPDATE') {
              const updatedCol = payload.new as any;
-             setColumns((prev) => {
-                 const mapped = prev.map(c => 
-                     String(c.id) === String(updatedCol.id) 
-                        ? { ...c, title: updatedCol.title, color: updatedCol.color, position: updatedCol.position || 0 } 
-                        : c
-                 );
-                 return stableSortColumns(mapped);
-             });
+             setColumns(prev => stableSortColumns(prev.map(c => String(c.id) === String(updatedCol.id) ? { ...c, title: updatedCol.title, color: updatedCol.color, position: updatedCol.position || 0 } : c)));
           } else if (payload.eventType === 'DELETE') {
-             setColumns((prev) => prev.filter(c => String(c.id) !== String(payload.old.id)));
+             setColumns(prev => prev.filter(c => String(c.id) !== String(payload.old.id)));
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        (payload) => {
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
           if (payload.eventType === 'INSERT') {
               const newData = payload.new as any;
               setColumns(currentCols => {
-                  const belongsToBoard = currentCols.some(c => String(c.id) === String(newData.column_id));
-                  if (belongsToBoard) {
+                  if (currentCols.some(c => String(c.id) === String(newData.column_id))) {
                       setTasks(prev => {
                           if (prev.some(t => String(t.id) === String(newData.id))) return prev;
-                          const unpacked = unpackTaskFromDB(newData);
-                          return [...prev, {
-                              id: newData.id,
-                              columnId: newData.column_id,
-                              color: newData.color || 'yellow',
-                              ...unpacked
-                          } as Task];
+                          return [...prev, { id: newData.id, columnId: newData.column_id, color: newData.color || 'yellow', ...unpackTaskFromDB(newData) } as Task];
                       });
                   }
                   return currentCols;
               });
-
           } else if (payload.eventType === 'UPDATE') {
               const newData = payload.new as any;
-              const unpacked = unpackTaskFromDB(newData);
-              
-              setTasks(prev => prev.map(t => {
-                  if (String(t.id) === String(newData.id)) {
-                      return {
-                          ...t,
-                          columnId: newData.column_id,
-                          color: newData.color || t.color,
-                          ...unpacked
-                      };
-                  }
-                  return t;
-              }));
-              
+              setTasks(prev => prev.map(t => String(t.id) === String(newData.id) ? { ...t, columnId: newData.column_id, color: newData.color || t.color, ...unpackTaskFromDB(newData) } : t));
           } else if (payload.eventType === 'DELETE') {
-              const oldId = payload.old.id;
-              setTasks(prev => prev.filter(t => String(t.id) !== String(oldId)));
-              if (selectedTask && String(selectedTask.id) === String(oldId)) {
-                  setIsModalOpen(false);
-                  setSelectedTask(null);
-              }
+              setTasks(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
+              if (selectedTask && String(selectedTask.id) === String(payload.old.id)) { setIsModalOpen(false); setSelectedTask(null); }
           }
-        }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-          supabase.from('profiles').select('*').then(({ data }) => {
-              if (data) setProfiles(data);
-          });
       })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [currentProfile.id, selectedTask]);
 
   useEffect(() => {
@@ -385,13 +338,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showAddMenu]);
 
-  // FIXED: Ensure we always generate valid UUIDs to satisfy DB strictness
   const generateTempId = () => {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return crypto.randomUUID();
-    }
-    // Polyfill for valid UUID v4
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
@@ -409,6 +358,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
     if (isSupabaseConfigured()) {
         const { data, error } = await supabase.from('columns').insert({
+            id: tempId, // Send explicit UUID
             profile_id: currentProfile.id,
             title: tempTitle,
             position: newPos,
@@ -416,7 +366,8 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         }).select().single();
 
         if (error) {
-            console.error("Erro ao criar lista:", error);
+            console.error("Erro ao criar lista:", JSON.stringify(error, null, 2));
+            alert(`Erro ao criar lista: ${error.message || 'Verifique o console'}`);
             setColumns(prev => prev.filter(c => c.id !== tempId));
         } else if (data) {
             setColumns(prev => prev.map(c => c.id === tempId ? { ...c, id: data.id } : c));
@@ -456,8 +407,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     setShowAddMenu(false);
     const randomText = PLACEHOLDER_TEXTS[Math.floor(Math.random() * PLACEHOLDER_TEXTS.length)];
     const tempId = generateTempId();
-    
-    // Find highest position in this column
     const colTasks = tasks.filter(t => String(t.columnId) === String(columnId));
     const newPos = colTasks.length;
 
@@ -476,22 +425,21 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
     if (isSupabaseConfigured()) {
         const packedContent = packTaskForDB(newTask);
-        const insertPayload = {
+        const { data, error } = await supabase.from('tasks').insert({
+            id: tempId, // Send explicit UUID
             column_id: columnId,
             content: packedContent, 
             color: newTask.color,
             position: newPos,
-        };
-
-        const { data, error } = await supabase.from('tasks').insert(insertPayload).select().single();
+        }).select().single();
 
         if (error) {
-            console.error("Error creating task:", error);
+            console.error("Error creating task:", JSON.stringify(error, null, 2));
+            alert(`Erro ao criar tarefa: ${error.message || 'Verifique o console'}`);
             setTasks(prev => prev.filter(t => t.id !== tempId));
         } else if (data) {
-            const realId = data.id;
-            setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: realId } : t));
-            setSelectedTask(prev => (prev && prev.id === tempId) ? { ...prev, id: realId } : prev);
+            setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
+            setSelectedTask(prev => (prev && prev.id === tempId) ? { ...prev, id: data.id } : prev);
         }
     } else {
         saveTaskMoves(newTasks);
@@ -555,10 +503,8 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
     const { active, over } = event;
     if (!over) return;
-
     const activeId = active.id;
     const overId = over.id;
-
     if (activeId === overId) return;
 
     const isActiveColumn = active.data.current?.type === 'Column';
@@ -566,14 +512,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       setColumns((columns) => {
         const activeIndex = columns.findIndex((col) => String(col.id) === String(activeId));
         const overIndex = columns.findIndex((col) => String(col.id) === String(overId));
-        
         const newCols = arrayMove(columns, activeIndex, overIndex);
-        
-        // Re-index positions
         const newColsWithPos = newCols.map((c, i) => ({ ...c, position: i }));
-        
         saveColumnOrder(newColsWithPos);
-        
         return newColsWithPos;
       });
     }
@@ -582,52 +523,40 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const onDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over) return;
-
     const activeId = active.id;
     const overId = over.id;
     if (activeId === overId) return;
 
     const isActiveTask = active.data.current?.type === 'Task';
     const isOverTask = over.data.current?.type === 'Task';
-
     if (!isActiveTask) return;
 
     if (isActiveTask && isOverTask) {
       setTasks((tasks) => {
         const activeIndex = tasks.findIndex((t) => String(t.id) === String(activeId));
         const overIndex = tasks.findIndex((t) => String(t.id) === String(overId));
-
         if (tasks[activeIndex].columnId !== tasks[overIndex].columnId) {
           tasks[activeIndex].columnId = tasks[overIndex].columnId;
         }
-
-        const newTasks = arrayMove(tasks, activeIndex, overIndex);
-        return newTasks;
+        return arrayMove(tasks, activeIndex, overIndex);
       });
     }
-
     const isOverColumn = over.data.current?.type === 'Column';
     if (isActiveTask && isOverColumn) {
       setTasks((tasks) => {
         const activeIndex = tasks.findIndex((t) => String(t.id) === String(activeId));
         tasks[activeIndex].columnId = overId;
-        const newTasks = arrayMove(tasks, activeIndex, activeIndex); 
-        return newTasks;
+        return arrayMove(tasks, activeIndex, activeIndex);
       });
     }
   };
 
   const handleDragEndFull = (event: DragEndEvent) => {
       onDragEnd(event); 
-      
       const { active, over } = event;
       if (!over) return;
-      
-      if (active.data.current?.type === 'Task') {
-          saveTaskMoves(tasks);
-      }
+      if (active.data.current?.type === 'Task') saveTaskMoves(tasks);
   }
-
 
   const handleTaskClick = (task: Task) => {
       setSelectedTask(task);
@@ -636,6 +565,24 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
   if (loading) {
      return <div className="flex w-full h-screen items-center justify-center text-pastel-text">Carregando seus planos...</div>;
+  }
+
+  if (errorMsg) {
+      return (
+          <div className="flex flex-col w-full h-screen items-center justify-center text-pastel-text p-4 text-center">
+              <div className="bg-red-50 p-6 rounded-2xl border border-red-100 max-w-md">
+                <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                <h3 className="font-bold text-lg text-red-900 mb-2">Ops! Algo deu errado.</h3>
+                <p className="text-red-700 mb-4">{errorMsg}</p>
+                <p className="text-xs text-red-500 bg-white p-3 rounded border border-red-100 font-mono">
+                    Dica: Verifique se rodou o comando SQL no Supabase para criar as tabelas.
+                </p>
+                <button onClick={() => window.location.reload()} className="mt-6 bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-xl font-bold transition-colors">
+                    Tentar Novamente
+                </button>
+              </div>
+          </div>
+      );
   }
 
   return (

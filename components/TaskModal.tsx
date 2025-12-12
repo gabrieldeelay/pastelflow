@@ -27,6 +27,15 @@ const TEXT_COLORS = [
 
 const COMMON_EMOJIS = ['😀', '😂', '🥰', '😎', '🤔', '😭', '👍', '👎', '🔥', '✨', '✅', '❌', '❤️', '🚀'];
 
+// Generate UUID helper
+const getUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
+
 // --- RICH EDITOR COMPONENT ---
 interface RichEditorProps {
   initialContent: string;
@@ -200,24 +209,13 @@ const TaskModal: React.FC<Props> = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // --- REALTIME SYNC FROM PROPS ---
-  // Sync color/attachments/text from props if they change externally (Board.tsx updates selectedTask)
   useEffect(() => {
-      // Check if props are different from current state (external update)
-      // Only update if it's NOT the result of our own recent save? 
-      // Actually, since we update state optimistically before save, props lagging behind isn't an issue.
-      // But props jumping ahead (external update) is what we want.
-      
       if (task.color !== color) {
           setColor(task.color);
       }
-      
-      // For arrays, simple length or JSON compare
       if (JSON.stringify(task.attachments) !== JSON.stringify(attachments)) {
           setAttachments(task.attachments || []);
       }
-
-      // For Text: RichEditor handles "if not focused" internally via its own useEffect
-      // But we must update the parent state wrapper here so RichEditor receives new prop
       if (task.content !== content) {
           setContent(task.content);
       }
@@ -225,21 +223,13 @@ const TaskModal: React.FC<Props> = ({
           setDescription(task.description || '');
       }
 
-  }, [task]); // React to any task prop change (which happens via Board's Realtime listener)
+  }, [task]); 
 
 
   // --- AUTOSAVE LOGIC ---
   useEffect(() => {
     if (!isOpen) return;
     
-    // Avoid autosave triggering immediately on sync
-    // We can check if state matches props. If matches, no need to save.
-    // However, debounce handles this nicely usually.
-    // But if we just synced from props, we don't want to send it back as a "change".
-    // A simple way is to check if current state != task (props).
-    // But task props update 1 render cycle later or so.
-    
-    // Let's just debounce. The cost of an extra update is low compared to complexity.
     setSaveStatus('saving');
 
     const timer = setTimeout(() => {
@@ -250,9 +240,6 @@ const TaskModal: React.FC<Props> = ({
             color,
             attachments
         };
-
-        // Only fire update if something actually changed from what is currently in props?
-        // Or just fire it. Supabase handles idempotent updates well enough.
         onUpdate(updatedTask);
         setSaveStatus('saved');
     }, 1000); 
@@ -263,7 +250,6 @@ const TaskModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (isOpen) {
-      // Init on open
       setContent(task.content);
       setDescription(task.description || '');
       setColor(task.color);
@@ -376,6 +362,8 @@ const TaskModal: React.FC<Props> = ({
         if (cols && cols.length > 0) {
             targetColId = cols[0].id;
         } else {
+            // Create target column if not exists
+            const tempColId = getUUID(); // Generate client-side UUID
             const { data: maxPosData } = await supabase
                 .from('columns')
                 .select('position')
@@ -388,6 +376,7 @@ const TaskModal: React.FC<Props> = ({
             const { data: newCol } = await supabase
                 .from('columns')
                 .insert({
+                    id: tempColId, // Explicit UUID
                     profile_id: targetProfile.id,
                     title: shareTitle,
                     position: nextPos,
@@ -401,8 +390,9 @@ const TaskModal: React.FC<Props> = ({
 
         if (targetColId) {
             await supabase.from('tasks').insert({
+                id: getUUID(), // Explicit UUID
                 column_id: targetColId,
-                content: packTaskForDB({ content, description, color, attachments } as Task), // PACK IT
+                content: packTaskForDB({ content, description, color, attachments } as Task), 
                 color: color,
                 position: 999 
             });
