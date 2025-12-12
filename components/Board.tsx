@@ -12,12 +12,13 @@ import {
   rectIntersection,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle, Calendar } from 'lucide-react';
+import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle, Calendar, Sparkles } from 'lucide-react';
 import { Column, Task, Id, PastelColor, Profile, AgendaEvent, DayNote } from '../types';
 import List from './List';
 import Card from './Card';
 import TaskModal from './TaskModal';
 import AgendaWidget from './AgendaWidget';
+import QuoteWidget from './QuoteWidget';
 import AgendaModal from './AgendaModal';
 import { createPortal } from 'react-dom';
 import { PLACEHOLDER_TEXTS, COLORS } from '../constants';
@@ -88,9 +89,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [agendaEvents, setAgendaEvents] = useState<AgendaEvent[]>([]);
   const [dayNotes, setDayNotes] = useState<DayNote[]>([]);
   const [isAgendaModalOpen, setIsAgendaModalOpen] = useState(false);
-  
-  // Agenda Layout State
   const [agendaLayout, setAgendaLayout] = useState({ x: 50, y: 120, w: 288, h: 320 });
+
+  // Quote Widget State
+  const [showQuote, setShowQuote] = useState(false);
+  const [quotePos, setQuotePos] = useState({ x: 400, y: 120 });
 
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -109,15 +112,14 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const columnsId = useMemo(() => columns.map((col) => col.id), [columns]);
   const activeProfile = useMemo(() => profiles.find(p => String(p.id) === String(currentProfile.id)) || currentProfile, [profiles, currentProfile]);
 
-  // --- SAVE LAYOUT TO DB ---
+  // --- SAVE LAYOUTS TO DB ---
   const saveAgendaLayout = async (x: number, y: number, w: number, h: number) => {
       setAgendaLayout({ x, y, w, h });
       if (isSupabaseConfigured()) {
           const settings = { 
               ...(activeProfile.settings || {}), 
               agenda_pos: { x, y },
-              agenda_size: { w, h },
-              agenda_visible: true
+              agenda_size: { w, h }
           };
           await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
       } else {
@@ -137,6 +139,32 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           localStorage.setItem(`pastel_agenda_vis_${currentProfile.id}`, String(visible));
       }
   }
+
+  const saveQuoteLayout = async (x: number, y: number) => {
+      setQuotePos({ x, y });
+      if (isSupabaseConfigured()) {
+          const settings = {
+              ...(activeProfile.settings || {}),
+              quote_pos: { x, y }
+          };
+          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
+      } else {
+          localStorage.setItem(`pastel_quote_pos_${currentProfile.id}`, JSON.stringify({ x, y }));
+      }
+  };
+
+  const saveQuoteVisibility = async (visible: boolean) => {
+      setShowQuote(visible);
+      if (isSupabaseConfigured()) {
+          const settings = {
+              ...(activeProfile.settings || {}),
+              quote_visible: visible
+          };
+          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
+      } else {
+          localStorage.setItem(`pastel_quote_vis_${currentProfile.id}`, String(visible));
+      }
+  };
 
   // --- PERSISTENCE HELPERS ---
   const saveColumnOrder = async (newColumns: Column[]) => {
@@ -178,23 +206,25 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       setLoading(true);
       setErrorMsg(null);
       
-      // Load Agenda Layout from Profile Settings if available
+      // Load Settings (Agenda & Quote)
       if (currentProfile.settings) {
-          if (currentProfile.settings.agenda_pos) {
-              setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_pos }));
-          }
-          if (currentProfile.settings.agenda_size) {
-              setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_size }));
-          }
-          if (currentProfile.settings.agenda_visible !== undefined) {
-              setShowAgenda(currentProfile.settings.agenda_visible);
-          }
+          if (currentProfile.settings.agenda_pos) setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_pos }));
+          if (currentProfile.settings.agenda_size) setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_size }));
+          if (currentProfile.settings.agenda_visible !== undefined) setShowAgenda(currentProfile.settings.agenda_visible);
+          
+          if (currentProfile.settings.quote_pos) setQuotePos(currentProfile.settings.quote_pos);
+          if (currentProfile.settings.quote_visible !== undefined) setShowQuote(currentProfile.settings.quote_visible);
       } else if (!isSupabaseConfigured()) {
           // Fallback Local
-          const savedLayout = localStorage.getItem(`pastel_agenda_layout_${currentProfile.id}`);
-          if (savedLayout) setAgendaLayout(JSON.parse(savedLayout));
-          const savedVis = localStorage.getItem(`pastel_agenda_vis_${currentProfile.id}`);
-          if (savedVis === 'true') setShowAgenda(true);
+          const savedAgendaLayout = localStorage.getItem(`pastel_agenda_layout_${currentProfile.id}`);
+          if (savedAgendaLayout) setAgendaLayout(JSON.parse(savedAgendaLayout));
+          const savedAgendaVis = localStorage.getItem(`pastel_agenda_vis_${currentProfile.id}`);
+          if (savedAgendaVis === 'true') setShowAgenda(true);
+
+          const savedQuotePos = localStorage.getItem(`pastel_quote_pos_${currentProfile.id}`);
+          if (savedQuotePos) setQuotePos(JSON.parse(savedQuotePos));
+          const savedQuoteVis = localStorage.getItem(`pastel_quote_vis_${currentProfile.id}`);
+          if (savedQuoteVis === 'true') setShowQuote(true);
       }
 
       if (!isSupabaseConfigured()) {
@@ -327,6 +357,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const toggleAgenda = () => {
       setShowAddMenu(false);
       saveAgendaVisibility(!showAgenda);
+  };
+  
+  const toggleQuote = () => {
+      setShowAddMenu(false);
+      saveQuoteVisibility(!showQuote);
   };
 
   const addAgendaEvent = async (evt: Partial<AgendaEvent>) => {
@@ -491,7 +526,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-start overflow-x-hidden p-8 gap-8 fade-in relative">
-      {/* AGENDA LAYER */}
+      {/* WIDGETS LAYER */}
       {showAgenda && (
           <AgendaWidget 
              events={agendaEvents}
@@ -500,6 +535,15 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              onLayoutChange={saveAgendaLayout}
              onRemove={() => saveAgendaVisibility(false)}
              onOpen={() => setIsAgendaModalOpen(true)}
+             onToggleEvent={updateAgendaEvent}
+          />
+      )}
+      
+      {showQuote && (
+          <QuoteWidget
+             onRemove={() => saveQuoteVisibility(false)}
+             initialPosition={{ x: quotePos.x, y: quotePos.y }}
+             onLayoutChange={saveQuoteLayout}
           />
       )}
       
@@ -554,7 +598,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
             </button>
             
             {showAddMenu && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
                     <button onClick={async () => {
                          const tempId = crypto.randomUUID();
                          setColumns(prev => [...prev, { id: tempId, title: 'Nova Lista', color: 'blue', position: columns.length }]);
@@ -568,9 +612,17 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                         <div className="bg-yellow-100 p-1 rounded text-yellow-600"><StickyNote size={18} /></div>
                         Nova Nota
                     </button>
-                    <button onClick={toggleAgenda} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold border-t border-stone-100 mt-1">
+                    
+                    <div className="h-px bg-stone-100 my-1 mx-2"></div>
+                    <p className="px-3 py-1 text-[10px] font-bold text-stone-400 uppercase tracking-widest">Widgets</p>
+
+                    <button onClick={toggleAgenda} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
                         <div className="bg-red-100 p-1 rounded text-red-600"><Calendar size={18} /></div>
                         {showAgenda ? 'Ocultar Agenda' : 'Agenda'}
+                    </button>
+                    <button onClick={toggleQuote} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
+                        <div className="bg-purple-100 p-1 rounded text-purple-600"><Sparkles size={18} /></div>
+                        {showQuote ? 'Ocultar Frase' : 'Frase do Dia'}
                     </button>
                 </div>
             )}

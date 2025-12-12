@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar as CalendarIcon, X, GripHorizontal, Clock, ArrowDownRight } from 'lucide-react';
+import { Calendar as CalendarIcon, X, GripHorizontal, Clock, ArrowDownRight, Check } from 'lucide-react';
 import { AgendaEvent } from '../types';
 import { COLOR_HEX } from '../constants';
 
@@ -11,9 +11,10 @@ interface Props {
   initialPosition?: { x: number; y: number };
   initialSize?: { w: number; h: number };
   onLayoutChange: (x: number, y: number, w: number, h: number) => void;
+  onToggleEvent?: (event: AgendaEvent) => void;
 }
 
-const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPosition, initialSize, onLayoutChange }) => {
+const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPosition, initialSize, onLayoutChange, onToggleEvent }) => {
   const [position, setPosition] = useState(initialPosition || { x: 50, y: 100 });
   const [size, setSize] = useState(initialSize || { w: 288, h: 320 }); // Default w-72 (288px)
   
@@ -144,12 +145,26 @@ const AgendaWidget: React.FC<Props> = ({ events, onOpen, onRemove, initialPositi
         {/* Mini List */}
         <div className="space-y-2 overflow-y-auto custom-scrollbar flex-1">
             {todayEvents.map(evt => (
-                <div key={evt.id} className="flex items-center gap-2 text-sm">
-                    <div 
-                        className={`w-2 h-2 rounded-full shrink-0`} 
-                        style={{ backgroundColor: COLOR_HEX[evt.category] || '#ccc' }}
-                    />
-                    <span className={`flex-1 truncate ${evt.is_completed ? 'line-through text-stone-400' : 'text-stone-600'}`}>
+                <div key={evt.id} className="flex items-center gap-2 text-sm group/item">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (onToggleEvent) onToggleEvent({ ...evt, is_completed: !evt.is_completed });
+                        }}
+                        className={`w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0 ${
+                            evt.is_completed 
+                            ? 'text-white' 
+                            : 'hover:bg-stone-100'
+                        }`}
+                        style={{ 
+                            backgroundColor: evt.is_completed ? (COLOR_HEX[evt.category] || '#ccc') : 'transparent',
+                            borderColor: COLOR_HEX[evt.category] || '#ccc' 
+                        }}
+                    >
+                        {evt.is_completed && <Check size={10} strokeWidth={4} />}
+                    </button>
+                    
+                    <span className={`flex-1 truncate transition-colors ${evt.is_completed ? 'line-through text-stone-400' : 'text-stone-600'}`}>
                         {evt.title}
                     </span>
                     <span className="text-xs text-stone-400 font-mono shrink-0">

@@ -38,6 +38,8 @@ export interface Profile {
     agenda_pos?: { x: number; y: number };
     agenda_size?: { w: number; h: number };
     agenda_visible?: boolean;
+    quote_pos?: { x: number; y: number };
+    quote_visible?: boolean;
   };
 }
 

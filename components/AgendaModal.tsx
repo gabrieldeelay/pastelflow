@@ -319,19 +319,15 @@ const AgendaModal: React.FC<Props> = ({
         >
             
             {/* HEADER */}
-            <div className="flex items-center justify-between p-6 border-b border-stone-200 bg-white/50 backdrop-blur-md">
+            <div className="flex items-center justify-between p-6 border-b border-stone-200 bg-white/50 backdrop-blur-md relative z-20">
                 <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 bg-stone-100 p-1 rounded-xl">
-                        <button onClick={handlePrev} className="p-2 hover:bg-white rounded-lg transition-colors"><ChevronLeft size={18} /></button>
-                        <button onClick={handleToday} className="px-3 py-1 text-xs font-bold uppercase hover:bg-white rounded-lg transition-colors">Hoje</button>
-                        <button onClick={handleNext} className="p-2 hover:bg-white rounded-lg transition-colors"><ChevronRight size={18} /></button>
-                    </div>
                     <h2 className="text-2xl font-black text-stone-700 capitalize">
                         {currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                     </h2>
                 </div>
 
                 <div className="flex items-center gap-4">
+                     <button onClick={handleToday} className="px-3 py-1 text-xs font-bold uppercase text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors">Hoje</button>
                     <div className="flex bg-stone-100 p-1 rounded-xl">
                         {VIEWS.map(v => (
                             <button 
@@ -356,7 +352,22 @@ const AgendaModal: React.FC<Props> = ({
             </div>
 
             {/* CONTENT */}
-            <div className="flex-1 p-6 overflow-hidden relative">
+            <div className="flex-1 p-6 overflow-hidden relative group">
+                {/* Floating Navigation Arrows ("Side Scroll") */}
+                <button 
+                    onClick={handlePrev}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 bg-white/80 backdrop-blur shadow-lg rounded-full text-stone-400 hover:text-stone-800 hover:scale-110 transition-all opacity-0 group-hover:opacity-100 -ml-2 group-hover:ml-0"
+                >
+                    <ChevronLeft size={24} />
+                </button>
+
+                <button 
+                    onClick={handleNext}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 bg-white/80 backdrop-blur shadow-lg rounded-full text-stone-400 hover:text-stone-800 hover:scale-110 transition-all opacity-0 group-hover:opacity-100 -mr-2 group-hover:mr-0"
+                >
+                    <ChevronRight size={24} />
+                </button>
+
                 {view === 'mês' && renderMonthView()}
                 {view === 'semana' && renderWeekView()}
                 {view === 'dia' && renderDayView()}
