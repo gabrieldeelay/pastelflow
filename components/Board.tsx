@@ -95,6 +95,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
   const columnsId = useMemo(() => columns.map((col) => col.id), [columns]);
 
+  // Derived active profile to ensure header updates in realtime
+  const activeProfile = useMemo(() => {
+      return profiles.find(p => p.id === currentProfile.id) || currentProfile;
+  }, [profiles, currentProfile]);
+
   // Load Data
   useEffect(() => {
     const fetchData = async () => {
@@ -210,20 +215,20 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
             const newCol = payload.new as any;
             if (newCol.profile_id === currentProfile.id) {
                 setColumns((prev) => {
-                    if (prev.some(c => c.id === newCol.id)) return prev;
+                    if (prev.some(c => String(c.id) === String(newCol.id))) return prev;
                     const c: Column = { id: newCol.id, title: newCol.title, color: newCol.color };
-                    return [...prev, c]; // Append
+                    return [...prev, c]; 
                 });
             }
           } else if (payload.eventType === 'UPDATE') {
              const updatedCol = payload.new as any;
              setColumns((prev) => prev.map(c => 
-                 c.id === updatedCol.id 
+                 String(c.id) === String(updatedCol.id) 
                     ? { ...c, title: updatedCol.title, color: updatedCol.color } 
                     : c
              ));
           } else if (payload.eventType === 'DELETE') {
-             setColumns((prev) => prev.filter(c => c.id !== payload.old.id));
+             setColumns((prev) => prev.filter(c => String(c.id) !== String(payload.old.id)));
           }
         }
       )
@@ -236,10 +241,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
               const newData = payload.new as any;
               // Check if this task belongs to one of our current columns
               setColumns(currentCols => {
-                  const belongsToBoard = currentCols.some(c => c.id === newData.column_id);
+                  const belongsToBoard = currentCols.some(c => String(c.id) === String(newData.column_id));
                   if (belongsToBoard) {
                       setTasks(prev => {
-                          if (prev.some(t => t.id === newData.id)) return prev; // Already exists
+                          if (prev.some(t => String(t.id) === String(newData.id))) return prev;
                           const unpacked = unpackTaskFromDB(newData);
                           return [...prev, {
                               id: newData.id,
@@ -257,7 +262,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
               const unpacked = unpackTaskFromDB(newData);
               
               setTasks(prev => prev.map(t => {
-                  if (t.id === newData.id) {
+                  if (String(t.id) === String(newData.id)) {
                       return {
                           ...t,
                           columnId: newData.column_id,
@@ -268,10 +273,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                   return t;
               }));
               
-              // SYNC SELECTED TASK (Important for Realtime Updates in Modal)
+              // SYNC SELECTED TASK
               setSelectedTask(prev => {
-                  if (prev && prev.id === newData.id) {
-                      // We merge the update into the currently open task
+                  if (prev && String(prev.id) === String(newData.id)) {
                       return {
                           ...prev,
                           columnId: newData.column_id,
@@ -284,11 +288,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
               
           } else if (payload.eventType === 'DELETE') {
               const oldId = payload.old.id;
-              setTasks(prev => prev.filter(t => t.id !== oldId));
+              setTasks(prev => prev.filter(t => String(t.id) !== String(oldId)));
               // Close modal if deleted task was open
-              setSelectedTask(prev => (prev && prev.id === oldId) ? null : prev);
-              if (selectedTask && selectedTask.id === oldId) {
+              if (selectedTask && String(selectedTask.id) === String(oldId)) {
                   setIsModalOpen(false);
+                  setSelectedTask(null);
               }
           }
         }
@@ -300,9 +304,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              if (payload.eventType === 'INSERT') {
                  setProfiles(prev => [...prev, payload.new as Profile]);
              } else if (payload.eventType === 'UPDATE') {
-                 setProfiles(prev => prev.map(p => p.id === payload.new.id ? payload.new as Profile : p));
+                 setProfiles(prev => prev.map(p => String(p.id) === String(payload.new.id) ? payload.new as Profile : p));
              } else if (payload.eventType === 'DELETE') {
-                 setProfiles(prev => prev.filter(p => p.id !== payload.old.id));
+                 setProfiles(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
              }
         }
       )
@@ -311,9 +315,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentProfile.id, selectedTask]); // Added selectedTask to dep array to access current state for modal close check? 
-  // Actually, using setState callback pattern is better for updates, but for 'selectedTask.id' check in DELETE it's tricky.
-  // Ideally we keep deps minimal. 
+  }, [currentProfile.id, selectedTask]);
 
 
   // Click outside add menu
@@ -642,7 +644,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         <div className="flex items-center gap-4">
           <div className="group relative">
             <img 
-                src={currentProfile.avatar} 
+                src={activeProfile.avatar} 
                 className="w-12 h-12 rounded-full border-2 border-white shadow-md cursor-pointer" 
                 alt="Avatar"
             />

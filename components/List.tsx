@@ -30,6 +30,23 @@ const List: React.FC<Props> = ({
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Local state for title to prevent realtime jitter while typing
+  const [localTitle, setLocalTitle] = useState(column.title);
+
+  // Sync local title when column updates from outside (Realtime)
+  useEffect(() => {
+    if (!editMode) {
+        setLocalTitle(column.title);
+    }
+  }, [column.title, editMode]);
+
+  const handleTitleCommit = () => {
+      setEditMode(false);
+      if (localTitle.trim() !== column.title) {
+          updateColumnTitle(column.id, localTitle);
+      }
+  };
+
   const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
 
   const {
@@ -125,7 +142,7 @@ const List: React.FC<Props> = ({
       >
         <div className="flex gap-2 items-center flex-1" onClick={() => setEditMode(true)}>
           {!editMode ? (
-            <span className="text-lg px-2 truncate w-full cursor-text">{column.title}</span>
+            <span className="text-lg px-2 truncate w-full cursor-text min-h-[28px] block">{column.title}</span>
           ) : (
             <input
               className="
@@ -142,13 +159,12 @@ const List: React.FC<Props> = ({
                 w-full
                 text-stone-700
               "
-              value={column.title}
-              onChange={(e) => updateColumnTitle(column.id, e.target.value)}
+              value={localTitle}
+              onChange={(e) => setLocalTitle(e.target.value)}
               autoFocus
-              onBlur={() => setEditMode(false)}
+              onBlur={handleTitleCommit}
               onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
-                setEditMode(false);
+                if (e.key === 'Enter') handleTitleCommit();
               }}
             />
           )}
@@ -168,20 +184,29 @@ const List: React.FC<Props> = ({
 
             {/* Dropdown Menu */}
             {showMenu && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-20 animate-in fade-in zoom-in duration-200">
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-20 animate-in fade-in zoom-in duration-200 cursor-default" onMouseDown={(e) => e.stopPropagation()}>
                     <div className="p-2">
                         <p className="text-xs font-bold text-stone-400 uppercase mb-2">Cor da Lista</p>
                         <div className="flex flex-wrap gap-1">
                             {COLOR_KEYS.map(k => (
                                 <button
                                     key={k}
-                                    onClick={() => updateColumnColor(column.id, k)}
-                                    className="w-6 h-6 rounded-full border border-stone-200 hover:scale-110 transition-transform"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        updateColumnColor(column.id, k);
+                                    }}
+                                    className={`
+                                        w-6 h-6 rounded-full border hover:scale-110 transition-transform
+                                        ${column.color === k ? 'border-stone-400 scale-110 shadow-sm' : 'border-stone-200'}
+                                    `}
                                     style={{ backgroundColor: COLOR_HEX[k] }}
                                 />
                             ))}
                             <button 
-                                onClick={() => updateColumnColor(column.id, undefined as any)} 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateColumnColor(column.id, undefined as any);
+                                }} 
                                 className="w-6 h-6 rounded-full border border-stone-200 bg-stone-50 hover:scale-110 flex items-center justify-center"
                                 title="Padrão"
                             >
@@ -191,7 +216,10 @@ const List: React.FC<Props> = ({
                     </div>
                     <div className="h-px bg-stone-100 my-1" />
                     <button
-                        onClick={() => deleteColumn(column.id)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            deleteColumn(column.id);
+                        }}
                         className="w-full text-left flex items-center gap-2 p-2 text-red-500 hover:bg-red-50 rounded-lg text-sm"
                     >
                         <Trash2 size={14} /> Excluir Lista
