@@ -24,7 +24,8 @@ export interface Task {
 export interface Column {
   id: Id;
   title: string;
-  color?: PastelColor | null; // New: Columns can have colors now
+  color?: PastelColor | null;
+  position: number; // Mandatory for ordering
 }
 
 export interface Profile {

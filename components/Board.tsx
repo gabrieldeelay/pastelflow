@@ -102,12 +102,12 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              setColumns(data.columns || []);
              setTasks(data.tasks || []);
          } else {
-             const defaultCols = [
-                { id: `todo_${currentProfile.id}`, title: 'A Fazer', color: 'blue' as PastelColor },
-                { id: `doing_${currentProfile.id}`, title: 'Em Andamento', color: 'yellow' as PastelColor },
-                { id: `done_${currentProfile.id}`, title: 'Concluído', color: 'green' as PastelColor },
+             const defaultCols: Column[] = [
+                { id: `todo_${currentProfile.id}`, title: 'A Fazer', color: 'blue', position: 0 },
+                { id: `doing_${currentProfile.id}`, title: 'Em Andamento', color: 'yellow', position: 1 },
+                { id: `done_${currentProfile.id}`, title: 'Concluído', color: 'green', position: 2 },
              ];
-             setColumns(defaultCols as any);
+             setColumns(defaultCols);
              setTasks([]);
              localStorage.setItem(key, JSON.stringify({ columns: defaultCols, tasks: [] }));
          }
@@ -152,7 +152,13 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         if (profilesData) setProfiles(profilesData);
 
         if (colsData && colsData.length > 0) {
-          setColumns(colsData);
+          // Explicitly map position from DB
+          setColumns(colsData.map((c: any) => ({
+              id: c.id,
+              title: c.title,
+              color: c.color,
+              position: c.position
+          })));
           setTasks(loadedTasks);
         } else {
            const defaultCols = [
@@ -168,7 +174,12 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
            if (insertError) {
                console.error("Error creating default columns:", insertError);
            } else if (newCols) {
-               setColumns(newCols);
+               setColumns(newCols.map((c: any) => ({
+                   id: c.id, 
+                   title: c.title, 
+                   color: c.color, 
+                   position: c.position 
+                })));
                setTasks([]);
            }
         }
@@ -195,17 +206,26 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
             if (String(newCol.profile_id) === String(currentProfile.id)) {
                 setColumns((prev) => {
                     if (prev.some(c => String(c.id) === String(newCol.id))) return prev;
-                    const c: Column = { id: newCol.id, title: newCol.title, color: newCol.color };
-                    return [...prev, c]; 
+                    const c: Column = { 
+                        id: newCol.id, 
+                        title: newCol.title, 
+                        color: newCol.color, 
+                        position: newCol.position 
+                    };
+                    return [...prev, c].sort((a, b) => a.position - b.position); 
                 });
             }
           } else if (payload.eventType === 'UPDATE') {
              const updatedCol = payload.new as any;
-             setColumns((prev) => prev.map(c => 
-                 String(c.id) === String(updatedCol.id) 
-                    ? { ...c, title: updatedCol.title, color: updatedCol.color } 
-                    : c
-             ));
+             setColumns((prev) => {
+                 const mapped = prev.map(c => 
+                     String(c.id) === String(updatedCol.id) 
+                        ? { ...c, title: updatedCol.title, color: updatedCol.color, position: updatedCol.position } 
+                        : c
+                 );
+                 // CRITICAL: Re-sort by position to reflect changes from other devices
+                 return mapped.sort((a, b) => a.position - b.position);
+             });
           } else if (payload.eventType === 'DELETE') {
              setColumns((prev) => prev.filter(c => String(c.id) !== String(payload.old.id)));
           }
@@ -312,7 +332,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       const colsToSave = newColumns.map((c, idx) => ({ 
           id: c.id, 
           title: c.title, 
-          position: idx, 
+          position: idx, // Ensure index is saved as position 
           color: c.color,
           profile_id: currentProfile.id 
       }));
@@ -344,15 +364,16 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     setShowAddMenu(false);
     const tempTitle = `Nova Lista`;
     const tempId = generateTempId();
+    const newPos = columns.length;
 
-    const optimisticCol: Column = { id: tempId, title: tempTitle, color: 'blue' };
+    const optimisticCol: Column = { id: tempId, title: tempTitle, color: 'blue', position: newPos };
     setColumns([...columns, optimisticCol]);
 
     if (isSupabaseConfigured()) {
         const { data, error } = await supabase.from('columns').insert({
             profile_id: currentProfile.id,
             title: tempTitle,
-            position: columns.length,
+            position: newPos,
             color: 'blue'
         }).select().single();
 
@@ -381,7 +402,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   };
 
   const updateColumnTitle = async (id: Id, title: string) => {
-    // String comparison for robustness
     const updatedCols = columns.map((col) => String(col.id) === String(id) ? { ...col, title } : col);
     setColumns(updatedCols);
     if(isSupabaseConfigured()) {
@@ -392,12 +412,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   };
 
   const updateColumnColor = async (id: Id, color: PastelColor | null) => {
-    // Optimistic Update: Explicitly allow null
     const updatedCols = columns.map((col) => String(col.id) === String(id) ? { ...col, color: color } : col);
     setColumns(updatedCols);
     
     if(isSupabaseConfigured()) {
-        // Send null to DB if color is null to clear it
         await supabase.from('columns').update({ color: color }).eq('id', id);
     } else {
         persistData(updatedCols, tasks);
@@ -515,8 +533,12 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         const activeIndex = columns.findIndex((col) => String(col.id) === String(activeId));
         const overIndex = columns.findIndex((col) => String(col.id) === String(overId));
         const newCols = arrayMove(columns, activeIndex, overIndex);
-        persistData(newCols, tasks); 
-        return newCols;
+        
+        // CRITICAL FIX: Update the internal position property immediately so state is consistent
+        const newColsWithPos = newCols.map((c, i) => ({ ...c, position: i }));
+        
+        persistData(newColsWithPos, tasks); 
+        return newColsWithPos;
       });
     }
   };
