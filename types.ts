@@ -1,4 +1,5 @@
 
+
 export type Id = string | number;
 
 export type PastelColor = 'pink' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'rose' | 'sky' | 'teal' | 'indigo' | 'slate';
@@ -17,15 +18,15 @@ export interface Task {
   description?: string;
   color: PastelColor;
   attachments?: Attachment[];
-  isChecklist?: boolean; // Toggles between plain text description or checkbox mode
-  checkedItems?: string[]; // IDs or indices of checked lines if using checklist
+  isChecklist?: boolean;
+  checkedItems?: string[];
 }
 
 export interface Column {
   id: Id;
   title: string;
   color?: PastelColor | null;
-  position: number; // Mandatory for ordering
+  position: number;
 }
 
 export interface Profile {
@@ -33,6 +34,30 @@ export interface Profile {
   name: string;
   pin?: string;
   avatar: string;
+  settings?: {
+    agenda_pos?: { x: number; y: number };
+    agenda_size?: { w: number; h: number };
+    agenda_visible?: boolean;
+  };
+}
+
+export interface AgendaEvent {
+  id: string;
+  profile_id: string;
+  title: string;
+  description?: string;
+  start_time: string; // ISO String
+  end_time?: string; // ISO String
+  category: PastelColor;
+  is_completed: boolean;
+  priority?: 'low' | 'medium' | 'high';
+}
+
+export interface DayNote {
+  id: string;
+  profile_id: string;
+  date: string; // YYYY-MM-DD
+  content: string;
 }
 
 export interface DragStartEvent {
