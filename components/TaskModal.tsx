@@ -195,41 +195,44 @@ const TaskModal: React.FC<Props> = ({
   // --- AUTOSAVE LOGIC ---
   useEffect(() => {
     if (!isOpen) return;
-
-    // Detect if current state differs from the last prop passed (task)
-    // NOTE: We compare against 'task' prop to see if there are unsaved local changes.
-    // However, if onUpdate updates the parent state, 'task' prop might change.
-    // To handle this simply: we trigger save on ANY change to local state after a delay.
     
     setSaveStatus('saving');
 
     const timer = setTimeout(() => {
+        // IMPORTANT: Use `task.id` here, which will be the *latest* ID from props.
+        // Even if task.id changed from Temp -> Real during the timeout,
+        // this closure will capture the LATEST props on the next render cycle before firing?
+        // Actually, `useEffect` dependencies trigger the effect.
+        // We need to pass the current ID.
+        
         const updatedTask = {
-            ...task,
+            ...task, // Merges current task props (including ID)
             content,
             description,
             color,
             attachments
         };
 
-        // Call update
         onUpdate(updatedTask);
         setSaveStatus('saved');
     }, 1000); // 1 second debounce
 
     return () => clearTimeout(timer);
-  }, [content, description, color, attachments]); // Dependencies trigger the effect
+  }, [content, description, color, attachments, task.id]); // trigger if ID changes too, ensuring we save to new ID
 
 
   useEffect(() => {
     if (isOpen) {
+      // Only reset content when the modal opens.
+      // We DO NOT listen to task.id here. 
+      // If task.id swaps (Temp -> Real) while open, we keep the user's local state (content/description).
       setContent(task.content);
       setDescription(task.description || '');
       setColor(task.color);
       setAttachments(task.attachments || []);
       setSaveStatus('saved');
     }
-  }, [isOpen, task.id]); // Reset when opening a NEW task
+  }, [isOpen]); // REMOVED task.id to prevent overwriting user input on ID swap
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -242,7 +245,7 @@ const TaskModal: React.FC<Props> = ({
   }, [showShareMenu]);
 
   const handleManualSave = () => {
-    // Force immediate save without waiting for debounce
+    // Force immediate save using current task ID (which should be updated by Board if swap happened)
     onUpdate({
       ...task,
       content,
@@ -362,10 +365,8 @@ const TaskModal: React.FC<Props> = ({
         if (targetColId) {
             await supabase.from('tasks').insert({
                 column_id: targetColId,
-                content: content,
-                description: description,
+                content: packTaskForDB({ content, description, color, attachments } as Task), // PACK IT
                 color: color,
-                attachments: attachments,
                 position: 999 
             });
             alert(`Nota enviada para ${targetProfile.name}!`);
@@ -377,6 +378,16 @@ const TaskModal: React.FC<Props> = ({
         alert("Erro de conexão ao compartilhar.");
     }
     setShowShareMenu(false);
+  };
+  
+  // Helper to pack for share (since packTaskForDB is not exported, we duplicate logic briefly or just send JSON)
+  const packTaskForDB = (t: Partial<Task>) => {
+      return JSON.stringify({
+          title: t.content,
+          description: t.description || '',
+          attachments: t.attachments || [],
+          isChecklist: t.isChecklist || false
+      });
   };
 
   if (!isOpen) return null;

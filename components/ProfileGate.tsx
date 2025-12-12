@@ -96,10 +96,16 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedProfile && pinAttempt === selectedProfile.pin) {
-        if (view === 'delete_confirm') {
+
+    // Check Logic: 
+    // 1. If profile has NO pin, logic passes automatically (pinAttempt doesn't matter).
+    // 2. If profile HAS pin, pinAttempt must match.
+    const isPinCorrect = !selectedProfile?.pin || (pinAttempt === selectedProfile.pin);
+
+    if (isPinCorrect) {
+        if (view === 'delete_confirm' && selectedProfile) {
             performDelete(selectedProfile);
-        } else {
+        } else if (selectedProfile) {
             onSelectProfile(selectedProfile);
         }
         setPinAttempt('');
@@ -110,18 +116,11 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
   };
 
   const initiateDelete = (e: React.MouseEvent, profile: Profile) => {
-      e.stopPropagation();
+      e.stopPropagation(); // Stop click from triggering profile login
       setProfileToDelete(profile);
-      
-      if (profile.pin) {
-          setSelectedProfile(profile);
-          setView('delete_confirm'); // Reuse pin screen or show specific delete modal
-      } else {
-          // No PIN, confirm directly
-          if (window.confirm(`Tem certeza que deseja excluir o perfil de ${profile.name}? Todos os dados serão perdidos.`)) {
-              performDelete(profile);
-          }
-      }
+      setSelectedProfile(profile); // Ensure avatar shows in modal
+      setView('delete_confirm');
+      setPinAttempt('');
   };
 
   const performDelete = async (profile: Profile) => {
@@ -196,6 +195,9 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
 
   if (view === 'pin' || view === 'delete_confirm') {
     const isDeleteMode = view === 'delete_confirm';
+    // Only show input if it's NOT delete mode (aka Login), OR if it IS delete mode AND the profile has a pin.
+    const showInput = !isDeleteMode || (isDeleteMode && selectedProfile?.pin);
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-paper p-4 fade-in">
         <div className="max-w-xs w-full bg-white rounded-3xl p-8 shadow-xl text-center relative border border-stone-100">
@@ -228,18 +230,21 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
           )}
 
           <form onSubmit={handlePinSubmit}>
-            <input
-              autoFocus
-              type="password"
-              maxLength={4}
-              placeholder="Digite o PIN"
-              value={pinAttempt}
-              onChange={(e) => setPinAttempt(e.target.value)}
-              className={`
-                w-full text-center text-2xl tracking-widest bg-stone-50 border-2 rounded-xl py-2 mb-4 outline-none
-                ${isDeleteMode ? 'border-red-100 focus:border-red-300' : 'border-stone-200 focus:border-stone-400'}
-              `}
-            />
+            {showInput && (
+                <input
+                    autoFocus
+                    type="password"
+                    maxLength={4}
+                    placeholder="Digite o PIN"
+                    value={pinAttempt}
+                    onChange={(e) => setPinAttempt(e.target.value)}
+                    className={`
+                        w-full text-center text-2xl tracking-widest bg-stone-50 border-2 rounded-xl py-2 mb-4 outline-none
+                        ${isDeleteMode ? 'border-red-100 focus:border-red-300' : 'border-stone-200 focus:border-stone-400'}
+                    `}
+                />
+            )}
+            
             <button className={`w-full py-2 rounded-xl font-bold text-white transition-colors ${isDeleteMode ? 'bg-red-500 hover:bg-red-600' : 'bg-stone-800 hover:bg-stone-700'}`}>
                {isDeleteMode ? 'Confirmar Exclusão' : 'Entrar'}
             </button>
@@ -273,10 +278,10 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
               {profile.name}
             </span>
 
-            {/* Delete Button (Always visible now) */}
+            {/* Delete Button (Updated: z-50 for click priority) */}
             <button 
                 onClick={(e) => initiateDelete(e, profile)}
-                className="absolute -top-2 -right-2 bg-white text-stone-400 hover:text-red-500 hover:bg-red-50 border border-stone-200 p-2 rounded-full shadow-md transition-all scale-90 hover:scale-110"
+                className="absolute -top-2 -right-2 z-50 bg-white text-stone-400 hover:text-red-500 hover:bg-red-50 border border-stone-200 p-2 rounded-full shadow-md transition-all scale-90 hover:scale-110"
                 title="Excluir Perfil"
             >
                 <Trash2 size={16} />
