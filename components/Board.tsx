@@ -63,6 +63,16 @@ const unpackTaskFromDB = (dbTask: any): Partial<Task> => {
   };
 };
 
+// Stable sort function: Primary by Position, Secondary by ID (string comparison)
+const stableSortColumns = (cols: Column[]) => {
+    return [...cols].sort((a, b) => {
+        const posDiff = (a.position || 0) - (b.position || 0);
+        if (posDiff !== 0) return posDiff;
+        // Fallback to ID for stable sort if positions are equal (legacy data)
+        return String(a.id).localeCompare(String(b.id));
+    });
+};
+
 const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [columns, setColumns] = useState<Column[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -107,13 +117,16 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       const updates = newColumns.map((col, index) => ({
           id: col.id,
           position: index,
-          profile_id: currentProfile.id, // RLS requirement usually
-          title: col.title, // Required for NOT NULL constraints if simple upsert
-          color: col.color  // Required for NOT NULL constraints if simple upsert
+          profile_id: currentProfile.id, 
+          title: col.title, 
+          color: col.color
       }));
 
       const { error } = await supabase.from('columns').upsert(updates);
-      if (error) console.error("Falha ao salvar ordem das listas:", error);
+      if (error) {
+          console.error("ERRO SUPABASE (Salvar Ordem):", error.message, error.details, error.hint);
+          // Optional: Add toast here
+      }
   };
 
   // 2. Save Single Column Attribute (Color or Title) - No reordering
@@ -127,7 +140,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       }
 
       const { error } = await supabase.from('columns').update(updates).eq('id', id);
-      if (error) console.error("Falha ao atualizar lista:", error);
+      if (error) {
+          console.error("ERRO SUPABASE (Atualizar Coluna):", error.message);
+      }
   };
 
   // 3. Save Task Order/Column Move
@@ -139,7 +154,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           return;
       }
 
-      // We only strictly need to update tasks that changed, but upserting all for the specific column is safer for index
       const updates = newTasks.map((t, idx) => ({
           id: t.id,
           column_id: t.columnId,
@@ -148,9 +162,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           position: idx
       }));
 
-      // In a real app, you'd filter 'updates' to only those changed, but upsert is fine here
       const { error } = await supabase.from('tasks').upsert(updates);
-      if (error) console.error("Falha ao salvar movimento das tarefas:", error);
+      if (error) {
+          console.error("ERRO SUPABASE (Salvar Tarefas):", error.message);
+      }
   };
 
 
@@ -217,14 +232,14 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         if (profilesData) setProfiles(profilesData);
 
         if (colsData && colsData.length > 0) {
-          // Ensure sort in JS just in case DB returned weirdness
-          const sortedCols = colsData.sort((a, b) => a.position - b.position).map((c: any) => ({
+          const mappedCols = colsData.map((c: any) => ({
               id: c.id,
               title: c.title,
               color: c.color,
-              position: c.position
+              position: c.position || 0
           }));
-          setColumns(sortedCols);
+          // Use stable sort
+          setColumns(stableSortColumns(mappedCols));
           setTasks(loadedTasks);
         } else {
            // Default Init
@@ -241,12 +256,13 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
            if (insertError) {
                console.error("Error creating default columns:", insertError);
            } else if (newCols) {
-               setColumns(newCols.map((c: any) => ({
+               const mapped = newCols.map((c: any) => ({
                    id: c.id, 
                    title: c.title, 
                    color: c.color, 
-                   position: c.position 
-                })).sort((a: any, b: any) => a.position - b.position));
+                   position: c.position || 0
+                }));
+               setColumns(stableSortColumns(mapped));
                setTasks([]);
            }
         }
@@ -278,9 +294,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                         id: newCol.id, 
                         title: newCol.title, 
                         color: newCol.color, 
-                        position: newCol.position 
+                        position: newCol.position || 0
                     };
-                    return [...prev, c].sort((a, b) => a.position - b.position); 
+                    return stableSortColumns([...prev, c]); 
                 });
             }
           } else if (payload.eventType === 'UPDATE') {
@@ -288,10 +304,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              setColumns((prev) => {
                  const mapped = prev.map(c => 
                      String(c.id) === String(updatedCol.id) 
-                        ? { ...c, title: updatedCol.title, color: updatedCol.color, position: updatedCol.position } 
+                        ? { ...c, title: updatedCol.title, color: updatedCol.color, position: updatedCol.position || 0 } 
                         : c
                  );
-                 return mapped.sort((a, b) => a.position - b.position);
+                 return stableSortColumns(mapped);
              });
           } else if (payload.eventType === 'DELETE') {
              setColumns((prev) => prev.filter(c => String(c.id) !== String(payload.old.id)));
@@ -348,7 +364,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         }
       )
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-          // Just reload profiles silently on change
           supabase.from('profiles').select('*').then(({ data }) => {
               if (data) setProfiles(data);
           });
@@ -370,11 +385,16 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showAddMenu]);
 
+  // FIXED: Ensure we always generate valid UUIDs to satisfy DB strictness
   const generateTempId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
     }
-    return Math.random().toString(36).substr(2, 9);
+    // Polyfill for valid UUID v4
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
   };
 
   const createColumn = async () => {
@@ -384,7 +404,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     const newPos = columns.length;
 
     const optimisticCol: Column = { id: tempId, title: tempTitle, color: 'blue', position: newPos };
-    const newCols = [...columns, optimisticCol];
+    const newCols = stableSortColumns([...columns, optimisticCol]);
     setColumns(newCols);
 
     if (isSupabaseConfigured()) {
@@ -396,8 +416,8 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         }).select().single();
 
         if (error) {
+            console.error("Erro ao criar lista:", error);
             setColumns(prev => prev.filter(c => c.id !== tempId));
-            alert(`Erro ao criar lista: ${error.message}`);
         } else if (data) {
             setColumns(prev => prev.map(c => c.id === tempId ? { ...c, id: data.id } : c));
         }
@@ -421,18 +441,14 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   };
 
   const updateColumnTitle = async (id: Id, title: string) => {
-    // Optimistic
     const updatedCols = columns.map((col) => String(col.id) === String(id) ? { ...col, title } : col);
     setColumns(updatedCols);
-    // Update only attribute
     saveColumnAttribute(id, { title });
   };
 
   const updateColumnColor = async (id: Id, color: PastelColor | null) => {
-    // Optimistic
     const updatedCols = columns.map((col) => String(col.id) === String(id) ? { ...col, color: color } : col);
     setColumns(updatedCols);
-    // Update only attribute, do NOT touch position here
     saveColumnAttribute(id, { color });
   }
 
@@ -551,13 +567,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         const activeIndex = columns.findIndex((col) => String(col.id) === String(activeId));
         const overIndex = columns.findIndex((col) => String(col.id) === String(overId));
         
-        // Move array locally
         const newCols = arrayMove(columns, activeIndex, overIndex);
         
-        // IMPORTANT: Re-index positions to 0, 1, 2...
+        // Re-index positions
         const newColsWithPos = newCols.map((c, i) => ({ ...c, position: i }));
         
-        // Save order to DB
         saveColumnOrder(newColsWithPos);
         
         return newColsWithPos;
@@ -578,7 +592,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
     if (!isActiveTask) return;
 
-    // Dragging Task over Task
     if (isActiveTask && isOverTask) {
       setTasks((tasks) => {
         const activeIndex = tasks.findIndex((t) => String(t.id) === String(activeId));
@@ -589,16 +602,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         }
 
         const newTasks = arrayMove(tasks, activeIndex, overIndex);
-        // We could optimize this to not save on every drag over frame, but onDragEnd for tasks is cleaner.
-        // However, dnd-kit sortable requires updating state to show preview.
-        // We defer saving to onDragEnd or debounce here. For simplicity in this fix, we won't persist on dragOVER, only dragEND if possible, 
-        // but since we are modifying structure, let's persist to ensure state consistency.
-        // Ideally, we wait for dragEnd. But for now let's just update local.
         return newTasks;
       });
     }
 
-    // Dragging Task over Column (Empty column drop)
     const isOverColumn = over.data.current?.type === 'Column';
     if (isActiveTask && isOverColumn) {
       setTasks((tasks) => {
@@ -610,22 +617,13 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     }
   };
 
-  // Add onDragEnd logic for Tasks specifically to save final position
-  // We need to modify the main onDragEnd to handle tasks too if we want persistence there
   const handleDragEndFull = (event: DragEndEvent) => {
-      onDragEnd(event); // Call existing column logic
+      onDragEnd(event); 
       
       const { active, over } = event;
       if (!over) return;
       
       if (active.data.current?.type === 'Task') {
-          // If it was a task drag, we need to save the final state of tasks
-          // The state 'tasks' is already updated by onDragOver, so we just persist it.
-          // Note: 'tasks' here refers to the closure state. We might need to use the functional update or a ref if batching is an issue,
-          // but usually onDragEnd fires after the last onDragOver state update.
-          
-          // Re-calculate positions for the affected column(s)
-          // Actually, saving the whole tasks array order is easiest.
           saveTaskMoves(tasks);
       }
   }
