@@ -12,7 +12,7 @@ interface Props {
   tasks: Task[];
   deleteColumn: (id: Id) => void;
   updateColumnTitle: (id: Id, title: string) => void;
-  updateColumnColor: (id: Id, color: PastelColor) => void;
+  updateColumnColor: (id: Id, color: PastelColor | null) => void;
   createTask: (columnId: Id) => void;
   onTaskClick: (task: Task) => void;
 }
@@ -205,7 +205,7 @@ const List: React.FC<Props> = ({
                             <button 
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    updateColumnColor(column.id, undefined as any);
+                                    updateColumnColor(column.id, null);
                                 }} 
                                 className="w-6 h-6 rounded-full border border-stone-200 bg-stone-50 hover:scale-110 flex items-center justify-center"
                                 title="Padrão"

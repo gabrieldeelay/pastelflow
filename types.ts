@@ -1,7 +1,7 @@
 
 export type Id = string | number;
 
-export type PastelColor = 'pink' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange';
+export type PastelColor = 'pink' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'rose' | 'sky' | 'teal' | 'indigo' | 'slate';
 
 export interface Attachment {
   id: string;
@@ -24,7 +24,7 @@ export interface Task {
 export interface Column {
   id: Id;
   title: string;
-  color?: PastelColor; // New: Columns can have colors now
+  color?: PastelColor | null; // New: Columns can have colors now
 }
 
 export interface Profile {
