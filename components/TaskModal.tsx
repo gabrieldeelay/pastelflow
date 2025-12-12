@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { X, CheckSquare, AlignLeft, Link as LinkIcon, Trash2, Send, Check, ChevronDown, Pencil, ExternalLink, Save, Bold, Italic, Underline, Type, Smile, PlusSquare, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X, CheckSquare, AlignLeft, Link as LinkIcon, Trash2, Send, Check, ChevronDown, Pencil, ExternalLink, Save, Bold, Italic, Underline, Type, Smile, PlusSquare, Cloud, CloudOff, Loader2 } from 'lucide-react';
 import { Task, PastelColor, Profile, Attachment } from '../types';
 import { COLOR_KEYS, COLOR_HEX } from '../constants';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
@@ -47,7 +47,7 @@ const RichEditor: React.FC<RichEditorProps> = ({ initialContent, onChange, place
     if (editorRef.current && initialContent !== editorRef.current.innerHTML) {
       editorRef.current.innerHTML = initialContent;
     }
-  }, []); // Run once on mount
+  }, []); 
 
   const handleInput = () => {
     if (editorRef.current) {
@@ -174,6 +174,8 @@ const TaskModal: React.FC<Props> = ({
   const [color, setColor] = useState<PastelColor>(task.color);
   const [attachments, setAttachments] = useState<Attachment[]>(task.attachments || []);
   
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+
   // Attachments
   const [newLinkUrl, setNewLinkUrl] = useState('');
   const [newLinkName, setNewLinkName] = useState('');
@@ -190,18 +192,44 @@ const TaskModal: React.FC<Props> = ({
   // Delete Confirmation State
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // --- AUTOSAVE LOGIC ---
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Detect if current state differs from the last prop passed (task)
+    // NOTE: We compare against 'task' prop to see if there are unsaved local changes.
+    // However, if onUpdate updates the parent state, 'task' prop might change.
+    // To handle this simply: we trigger save on ANY change to local state after a delay.
+    
+    setSaveStatus('saving');
+
+    const timer = setTimeout(() => {
+        const updatedTask = {
+            ...task,
+            content,
+            description,
+            color,
+            attachments
+        };
+
+        // Call update
+        onUpdate(updatedTask);
+        setSaveStatus('saved');
+    }, 1000); // 1 second debounce
+
+    return () => clearTimeout(timer);
+  }, [content, description, color, attachments]); // Dependencies trigger the effect
+
+
   useEffect(() => {
     if (isOpen) {
       setContent(task.content);
       setDescription(task.description || '');
       setColor(task.color);
       setAttachments(task.attachments || []);
-      setShowShareMenu(false);
-      setShowAttachInput(false);
-      setEditingAttId(null);
-      setConfirmDelete(false);
+      setSaveStatus('saved');
     }
-  }, [isOpen, task]);
+  }, [isOpen, task.id]); // Reset when opening a NEW task
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -213,7 +241,8 @@ const TaskModal: React.FC<Props> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showShareMenu]);
 
-  const handleSave = () => {
+  const handleManualSave = () => {
+    // Force immediate save without waiting for debounce
     onUpdate({
       ...task,
       content,
@@ -258,19 +287,14 @@ const TaskModal: React.FC<Props> = ({
 
   const handleShare = async (targetProfile: Profile) => {
     const shareTitle = "Compartilhado";
-    
-    // --- LOCAL STORAGE MODE ---
     if (!isSupabaseConfigured()) {
         try {
             const key = `pastel_data_${targetProfile.id}`;
             const existingData = localStorage.getItem(key);
-            
-            // Ensure structure exists
             let targetData = existingData ? JSON.parse(existingData) : { columns: [], tasks: [] };
             if (!targetData.columns) targetData.columns = [];
             if (!targetData.tasks) targetData.tasks = [];
             
-            // Find or Create "Compartilhado" column
             let sharedCol = targetData.columns.find((c: any) => c.title === shareTitle);
             if (!sharedCol) {
                 sharedCol = {
@@ -280,8 +304,6 @@ const TaskModal: React.FC<Props> = ({
                 };
                 targetData.columns.push(sharedCol);
             }
-
-            // Create new task copy for them
             const newTask = {
                 id: Math.random().toString(36).substr(2, 9),
                 columnId: sharedCol.id,
@@ -290,10 +312,7 @@ const TaskModal: React.FC<Props> = ({
                 color: color,
                 attachments: attachments
             };
-            
             targetData.tasks.push(newTask);
-            
-            // Save back
             localStorage.setItem(key, JSON.stringify(targetData));
             alert(`Nota enviada para ${targetProfile.name}! (Verifique a lista "${shareTitle}")`);
         } catch (e) {
@@ -304,7 +323,6 @@ const TaskModal: React.FC<Props> = ({
         return;
     }
 
-    // --- SUPABASE MODE (Existing logic retained if backend is fixed) ---
     try {
         const { data: cols } = await supabase
             .from('columns')
@@ -368,14 +386,35 @@ const TaskModal: React.FC<Props> = ({
       <div 
         className="bg-[#fdfbf7] w-full max-w-5xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
       >
-        {/* Header Color Strip */}
+        {/* Header Color Strip with Status */}
         <div 
             style={{ backgroundColor: COLOR_HEX[color] }} 
-            className="h-3 w-full shrink-0 transition-colors duration-300" 
-        />
+            className="h-4 w-full shrink-0 transition-colors duration-300 flex items-center justify-center relative"
+        >
+             <div className="absolute top-full mt-1 bg-white/80 backdrop-blur rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 shadow-sm border border-stone-100">
+                {saveStatus === 'saving' && (
+                    <>
+                        <Loader2 size={10} className="animate-spin text-stone-400" />
+                        <span className="text-stone-400">Salvando...</span>
+                    </>
+                )}
+                {saveStatus === 'saved' && (
+                    <>
+                        <Cloud size={10} className="text-green-500" />
+                        <span className="text-green-600">Salvo na nuvem</span>
+                    </>
+                )}
+                {saveStatus === 'error' && (
+                    <>
+                        <CloudOff size={10} className="text-red-500" />
+                        <span className="text-red-500">Erro ao salvar</span>
+                    </>
+                )}
+             </div>
+        </div>
 
         {/* Modal Scrollable Content */}
-        <div className="flex-1 overflow-y-auto min-h-0 p-6 sm:p-8 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto min-h-0 p-6 sm:p-8 custom-scrollbar pt-8">
           
           <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
             
@@ -393,8 +432,9 @@ const TaskModal: React.FC<Props> = ({
                    />
                  </div>
                  <button 
-                    onClick={onClose} 
+                    onClick={handleManualSave} 
                     className="p-2 -mr-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors shrink-0"
+                    title="Fechar e Salvar"
                  >
                    <X size={28} />
                  </button>
@@ -604,10 +644,10 @@ const TaskModal: React.FC<Props> = ({
         {/* Footer */}
         <div className="p-4 sm:p-5 border-t border-stone-100 flex justify-end bg-stone-50/80 backdrop-blur-sm shrink-0">
            <button 
-             onClick={handleSave}
+             onClick={handleManualSave}
              className="bg-stone-800 text-white px-8 py-3 rounded-xl font-bold hover:bg-stone-700 active:scale-95 transition-all shadow-lg shadow-stone-200"
            >
-             Salvar Alterações
+             {saveStatus === 'saving' ? 'Salvando...' : 'Fechar & Salvar'}
            </button>
         </div>
       </div>

@@ -68,9 +68,17 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
        return;
     }
 
-    const { data, error } = await supabase.from('profiles').insert([newProfile]).select();
-    if (!error && data) {
-      setProfiles([...profiles, data[0]]);
+    // Persist to Cloud FIRST
+    const { data, error } = await supabase.from('profiles').insert([newProfile]).select().single();
+    
+    if (error) {
+        console.error(error);
+        alert("Erro ao criar perfil na nuvem.");
+        return;
+    }
+
+    if (data) {
+      setProfiles([...profiles, data]);
       setView('select');
       setNewProfileName('');
       setNewProfilePin('');

@@ -58,7 +58,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     const fetchData = async () => {
       setLoading(true);
       if (!isSupabaseConfigured()) {
-         // Local Storage Mock - Strictly scoped to currentProfile.id
          const key = `pastel_data_${currentProfile.id}`;
          const saved = localStorage.getItem(key);
          if (saved) {
@@ -66,7 +65,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              setColumns(data.columns || []);
              setTasks(data.tasks || []);
          } else {
-             // Defaults if no data for this profile yet
              const defaultCols = [
                 { id: `todo_${currentProfile.id}`, title: 'A Fazer' },
                 { id: `doing_${currentProfile.id}`, title: 'Em Andamento' },
@@ -77,7 +75,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              localStorage.setItem(key, JSON.stringify({ columns: defaultCols, tasks: [] }));
          }
          
-         // Mock profiles for sharing
          const savedProfiles = localStorage.getItem('mock_profiles');
          if(savedProfiles) setProfiles(JSON.parse(savedProfiles));
 
@@ -85,37 +82,61 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
          return;
       }
 
-      // Fetch Columns
-      const { data: colsData } = await supabase
-        .from('columns')
-        .select('*')
-        .eq('profile_id', currentProfile.id)
-        .order('position');
-      
-      // Fetch Tasks
-      const { data: tasksData } = await supabase
-        .from('tasks')
-        .select('*')
-        .in('column_id', colsData?.map(c => c.id) || []);
+      try {
+        // Fetch Columns
+        const { data: colsData, error: colsError } = await supabase
+          .from('columns')
+          .select('*')
+          .eq('profile_id', currentProfile.id)
+          .order('position');
+        
+        if (colsError) throw colsError;
 
-      // Fetch All Profiles (for sharing)
-      const { data: profilesData } = await supabase.from('profiles').select('*');
-      if (profilesData) setProfiles(profilesData);
+        // Fetch Tasks
+        let tasksData: any[] = [];
+        if (colsData && colsData.length > 0) {
+            const { data, error: tasksError } = await supabase
+              .from('tasks')
+              .select('*')
+              .in('column_id', colsData.map(c => c.id));
+            
+            if (tasksError) throw tasksError;
+            if (data) tasksData = data;
+        }
 
-      if (colsData && colsData.length > 0) {
-        setColumns(colsData);
-        setTasks(tasksData || []);
-      } else {
-         // Init default cols if empty in DB
-         const defaultCols = [
-            { id: crypto.randomUUID(), profile_id: currentProfile.id, title: 'A Fazer', position: 0 },
-            { id: crypto.randomUUID(), profile_id: currentProfile.id, title: 'Em Andamento', position: 1 },
-            { id: crypto.randomUUID(), profile_id: currentProfile.id, title: 'Concluído', position: 2 },
-         ];
-         setColumns(defaultCols as any); 
-         await supabase.from('columns').insert(defaultCols);
+        // Fetch All Profiles (for sharing)
+        const { data: profilesData } = await supabase.from('profiles').select('*');
+        if (profilesData) setProfiles(profilesData);
+
+        if (colsData && colsData.length > 0) {
+          setColumns(colsData);
+          setTasks(tasksData || []);
+        } else {
+           // Create default columns in DB if none exist
+           const defaultCols = [
+              { profile_id: currentProfile.id, title: 'A Fazer', position: 0, color: 'blue' },
+              { profile_id: currentProfile.id, title: 'Em Andamento', position: 1, color: 'yellow' },
+              { profile_id: currentProfile.id, title: 'Concluído', position: 2, color: 'green' },
+           ];
+           
+           const { data: newCols, error: insertError } = await supabase
+              .from('columns')
+              .insert(defaultCols)
+              .select();
+
+           if (insertError) {
+               console.error("Error creating default columns:", insertError);
+           } else if (newCols) {
+               setColumns(newCols);
+               setTasks([]);
+           }
+        }
+      } catch (error: any) {
+        console.error("Error loading board:", error);
+        alert(`Erro ao carregar dados: ${error.message || 'Erro desconhecido'}`);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchData();
@@ -133,7 +154,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   }, [showAddMenu]);
 
 
-  // Sync Data Helper
+  // Sync Data Helper (Batch Update - Fallback/Reorder)
   const persistData = async (newColumns: Column[], newTasks: Task[]) => {
       if (!isSupabaseConfigured()) {
           const key = `pastel_data_${currentProfile.id}`;
@@ -141,7 +162,8 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           return;
       }
       
-      // Upsert Columns
+      // We only use this for reordering/batch updates now.
+      
       const colsToSave = newColumns.map((c, idx) => ({ 
           id: c.id, 
           title: c.title, 
@@ -153,14 +175,12 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           await supabase.from('columns').upsert(colsToSave);
       }
 
-      // Upsert Tasks
       const tasksToSave = newTasks.map((t, idx) => ({
           id: t.id,
           column_id: t.columnId,
           content: t.content,
           description: t.description,
-          is_checklist: t.isChecklist,
-          attachments: t.attachments,
+          // Removed attachments and is_checklist from persistData to align with DB schema limits
           color: t.color,
           position: idx 
       }));
@@ -171,26 +191,46 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   };
 
 
-  const generateId = () => isSupabaseConfigured() ? crypto.randomUUID() : Math.floor(Math.random() * 100001).toString();
+  const generateTempId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback UUID v4 generator for compatibility
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+  };
 
   const createColumn = async () => {
-    const newCol: Column = {
-      id: generateId(),
-      title: `Nova Lista`,
-    };
-    const updatedCols = [...columns, newCol];
-    setColumns(updatedCols);
     setShowAddMenu(false);
     
+    const tempTitle = `Nova Lista`;
+    const tempId = generateTempId();
+
+    // Optimistic Update
+    const optimisticCol: Column = { id: tempId, title: tempTitle, color: 'blue' };
+    setColumns([...columns, optimisticCol]);
+
     if (isSupabaseConfigured()) {
-        await supabase.from('columns').insert({
-            id: newCol.id,
+        const { data, error } = await supabase.from('columns').insert({
+            id: tempId, // Explicitly sending ID
             profile_id: currentProfile.id,
-            title: newCol.title,
-            position: updatedCols.length - 1
-        });
+            title: tempTitle,
+            position: columns.length, // Append to end
+            color: 'blue' // Provide default color
+        }).select().single();
+
+        if (error) {
+            console.error("Error creating column:", JSON.stringify(error, null, 2));
+            alert(`Erro ao salvar lista: ${error.message}`);
+            setColumns(prev => prev.filter(c => c.id !== tempId)); // Revert
+        } else if (data && data.id !== tempId) {
+            // Ensure state matches DB if DB generated something else (unlikely with explicit ID)
+            setColumns(prev => prev.map(c => c.id === tempId ? { ...c, id: data.id } : c));
+        }
     } else {
-        persistData(updatedCols, tasks);
+        persistData([...columns, optimisticCol], tasks);
     }
   };
 
@@ -234,27 +274,51 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   }
 
   const createTask = async (columnId: Id) => {
+    setShowAddMenu(false);
     const randomText = PLACEHOLDER_TEXTS[Math.floor(Math.random() * PLACEHOLDER_TEXTS.length)];
+    const tempId = generateTempId();
+    
+    // Optimistic Update
     const newTask: Task = {
-      id: generateId(),
+      id: tempId,
       columnId,
       content: randomText,
       color: 'yellow',
+      description: '',
+      attachments: [],
+      isChecklist: false
     };
-    const updatedTasks = [...tasks, newTask];
-    setTasks(updatedTasks);
-    setShowAddMenu(false);
+    
+    setTasks(prev => [...prev, newTask]);
 
     if (isSupabaseConfigured()) {
-        await supabase.from('tasks').insert({
-            id: newTask.id,
+        // Calculate position (last in column)
+        const columnTasks = tasks.filter(t => t.columnId === columnId);
+        
+        // CRITICAL FIX: Send explicit values for ALL fields to avoid Not Null constraint violations
+        // AND REMOVE columns that don't exist in DB (description, attachments, is_checklist) to avoid schema errors
+        const insertPayload = {
+            id: tempId, 
             column_id: columnId,
             content: newTask.content,
             color: newTask.color,
-            position: updatedTasks.length
-        });
+            position: columnTasks.length,
+            // description: '', // REMOVED - Column does not exist
+            // is_checklist: false, // REMOVED
+            // attachments: [] // REMOVED
+        };
+
+        const { data, error } = await supabase.from('tasks').insert(insertPayload).select().single();
+
+        if (error) {
+            console.error("Error creating task:", JSON.stringify(error, null, 2));
+            alert(`Erro ao salvar nota na nuvem: ${error.message}. Tente novamente.`);
+            setTasks(prev => prev.filter(t => t.id !== tempId)); // Revert
+        } else if (data && data.id !== tempId) {
+            setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
+        }
     } else {
-        persistData(columns, updatedTasks);
+        persistData(columns, [...tasks, newTask]);
     }
   };
 
@@ -270,7 +334,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const deleteTask = async (id: Id) => {
     const updatedTasks = tasks.filter((task) => task.id !== id);
     setTasks(updatedTasks);
-    if (selectedTask?.id === id) setIsModalOpen(false); // Close modal if deleted
+    if (selectedTask?.id === id) setIsModalOpen(false); 
 
     if(isSupabaseConfigured()) {
         await supabase.from('tasks').delete().eq('id', id);
@@ -279,10 +343,27 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     }
   };
 
+  // --- AUTOSAVE HANDLER ---
   const updateTaskFull = async (updatedTask: Task) => {
-      const updatedTasks = tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t));
-      setTasks(updatedTasks);
-      persistData(columns, updatedTasks); // This handles specific field updates via upsert
+      setTasks(prev => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+      
+      if (isSupabaseConfigured()) {
+         try {
+             // Safe Upsert
+             await supabase.from('tasks').update({
+                content: updatedTask.content,
+                // description: updatedTask.description || '', // REMOVED - Column does not exist
+                // is_checklist: updatedTask.isChecklist || false, // REMOVED
+                // attachments: updatedTask.attachments || [], // REMOVED
+                color: updatedTask.color,
+                // We do NOT update position here to avoid jumping cards during edit
+             }).eq('id', updatedTask.id);
+         } catch (e) {
+             console.error("Autosave failed", e);
+         }
+      } else {
+         persistData(columns, tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+      }
   }
 
   // DnD Handlers
@@ -498,7 +579,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                 updateColumnColor={updateColumnColor}
                 deleteTask={deleteTask}
                 updateTaskColor={(id, color) => {
-                     // Backward compatibility for list generic update, though now handled in modal mostly
                      const t = tasks.find(t => t.id === id);
                      if(t) updateTaskFull({...t, color});
                 }}
