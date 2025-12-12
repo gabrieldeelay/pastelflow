@@ -29,6 +29,28 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
 
   useEffect(() => {
     fetchProfiles();
+
+    if (!isSupabaseConfigured()) return;
+
+    // Realtime subscription for profiles
+    const channel = supabase.channel('profiles_gate_sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+                setProfiles(prev => {
+                    if (prev.find(p => p.id === payload.new.id)) return prev;
+                    return [...prev, payload.new as Profile];
+                });
+            } else if (payload.eventType === 'DELETE') {
+                setProfiles(prev => prev.filter(p => p.id !== payload.old.id));
+            } else if (payload.eventType === 'UPDATE') {
+                setProfiles(prev => prev.map(p => p.id === payload.new.id ? payload.new as Profile : p));
+            }
+        })
+        .subscribe();
+
+    return () => {
+        supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchProfiles = async () => {
@@ -78,7 +100,12 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
     }
 
     if (data) {
-      setProfiles([...profiles, data]);
+      // Optimistically add? No, wait for Realtime or add explicitly.
+      // We add explicitly to be fast, but deduplicate in realtime listener.
+      setProfiles(prev => {
+          if (prev.find(p => p.id === data.id)) return prev;
+          return [...prev, data];
+      });
       setView('select');
       setNewProfileName('');
       setNewProfilePin('');
@@ -137,7 +164,9 @@ const ProfileGate: React.FC<Props> = ({ onSelectProfile }) => {
 
       await supabase.from('profiles').delete().eq('id', profile.id);
       
-      setProfiles(profiles.filter(p => p.id !== profile.id));
+      // We don't need to manually remove from state if Realtime is working, 
+      // but doing so makes UI snappier. Realtime listener will ignore if already gone.
+      setProfiles(prev => prev.filter(p => p.id !== profile.id));
       setView('select');
       setProfileToDelete(null);
       setSelectedProfile(null);

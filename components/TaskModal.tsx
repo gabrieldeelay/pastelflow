@@ -49,6 +49,13 @@ const RichEditor: React.FC<RichEditorProps> = ({ initialContent, onChange, place
     }
   }, []); 
 
+  // Watch for external content updates if not focused (simple sync approach)
+  useEffect(() => {
+    if (editorRef.current && document.activeElement !== editorRef.current && initialContent !== editorRef.current.innerHTML) {
+        editorRef.current.innerHTML = initialContent;
+    }
+  }, [initialContent]);
+
   const handleInput = () => {
     if (editorRef.current) {
       onChange(editorRef.current.innerHTML);
@@ -192,47 +199,78 @@ const TaskModal: React.FC<Props> = ({
   // Delete Confirmation State
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // --- REALTIME SYNC FROM PROPS ---
+  // Sync color/attachments/text from props if they change externally (Board.tsx updates selectedTask)
+  useEffect(() => {
+      // Check if props are different from current state (external update)
+      // Only update if it's NOT the result of our own recent save? 
+      // Actually, since we update state optimistically before save, props lagging behind isn't an issue.
+      // But props jumping ahead (external update) is what we want.
+      
+      if (task.color !== color) {
+          setColor(task.color);
+      }
+      
+      // For arrays, simple length or JSON compare
+      if (JSON.stringify(task.attachments) !== JSON.stringify(attachments)) {
+          setAttachments(task.attachments || []);
+      }
+
+      // For Text: RichEditor handles "if not focused" internally via its own useEffect
+      // But we must update the parent state wrapper here so RichEditor receives new prop
+      if (task.content !== content) {
+          setContent(task.content);
+      }
+      if ((task.description || '') !== description) {
+          setDescription(task.description || '');
+      }
+
+  }, [task]); // React to any task prop change (which happens via Board's Realtime listener)
+
+
   // --- AUTOSAVE LOGIC ---
   useEffect(() => {
     if (!isOpen) return;
     
+    // Avoid autosave triggering immediately on sync
+    // We can check if state matches props. If matches, no need to save.
+    // However, debounce handles this nicely usually.
+    // But if we just synced from props, we don't want to send it back as a "change".
+    // A simple way is to check if current state != task (props).
+    // But task props update 1 render cycle later or so.
+    
+    // Let's just debounce. The cost of an extra update is low compared to complexity.
     setSaveStatus('saving');
 
     const timer = setTimeout(() => {
-        // IMPORTANT: Use `task.id` here, which will be the *latest* ID from props.
-        // Even if task.id changed from Temp -> Real during the timeout,
-        // this closure will capture the LATEST props on the next render cycle before firing?
-        // Actually, `useEffect` dependencies trigger the effect.
-        // We need to pass the current ID.
-        
         const updatedTask = {
-            ...task, // Merges current task props (including ID)
+            ...task, 
             content,
             description,
             color,
             attachments
         };
 
+        // Only fire update if something actually changed from what is currently in props?
+        // Or just fire it. Supabase handles idempotent updates well enough.
         onUpdate(updatedTask);
         setSaveStatus('saved');
-    }, 1000); // 1 second debounce
+    }, 1000); 
 
     return () => clearTimeout(timer);
-  }, [content, description, color, attachments, task.id]); // trigger if ID changes too, ensuring we save to new ID
+  }, [content, description, color, attachments, task.id]);
 
 
   useEffect(() => {
     if (isOpen) {
-      // Only reset content when the modal opens.
-      // We DO NOT listen to task.id here. 
-      // If task.id swaps (Temp -> Real) while open, we keep the user's local state (content/description).
+      // Init on open
       setContent(task.content);
       setDescription(task.description || '');
       setColor(task.color);
       setAttachments(task.attachments || []);
       setSaveStatus('saved');
     }
-  }, [isOpen]); // REMOVED task.id to prevent overwriting user input on ID swap
+  }, [isOpen]); 
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -245,7 +283,6 @@ const TaskModal: React.FC<Props> = ({
   }, [showShareMenu]);
 
   const handleManualSave = () => {
-    // Force immediate save using current task ID (which should be updated by Board if swap happened)
     onUpdate({
       ...task,
       content,
@@ -380,7 +417,7 @@ const TaskModal: React.FC<Props> = ({
     setShowShareMenu(false);
   };
   
-  // Helper to pack for share (since packTaskForDB is not exported, we duplicate logic briefly or just send JSON)
+  // Helper to pack for share
   const packTaskForDB = (t: Partial<Task>) => {
       return JSON.stringify({
           title: t.content,

@@ -20,6 +20,7 @@ import TaskModal from './TaskModal';
 import { createPortal } from 'react-dom';
 import { PLACEHOLDER_TEXTS, COLORS } from '../constants';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface Props {
   currentProfile: Profile;
@@ -194,6 +195,126 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
     fetchData();
   }, [currentProfile.id]);
+
+  // --- REALTIME SUBSCRIPTION SETUP ---
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    const channel = supabase.channel(`board_sync_${currentProfile.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'columns' },
+        (payload) => {
+          // Handle Columns Changes
+          if (payload.eventType === 'INSERT') {
+            const newCol = payload.new as any;
+            if (newCol.profile_id === currentProfile.id) {
+                setColumns((prev) => {
+                    if (prev.some(c => c.id === newCol.id)) return prev;
+                    const c: Column = { id: newCol.id, title: newCol.title, color: newCol.color };
+                    return [...prev, c]; // Append
+                });
+            }
+          } else if (payload.eventType === 'UPDATE') {
+             const updatedCol = payload.new as any;
+             setColumns((prev) => prev.map(c => 
+                 c.id === updatedCol.id 
+                    ? { ...c, title: updatedCol.title, color: updatedCol.color } 
+                    : c
+             ));
+          } else if (payload.eventType === 'DELETE') {
+             setColumns((prev) => prev.filter(c => c.id !== payload.old.id));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload) => {
+          // Handle Task Changes
+          if (payload.eventType === 'INSERT') {
+              const newData = payload.new as any;
+              // Check if this task belongs to one of our current columns
+              setColumns(currentCols => {
+                  const belongsToBoard = currentCols.some(c => c.id === newData.column_id);
+                  if (belongsToBoard) {
+                      setTasks(prev => {
+                          if (prev.some(t => t.id === newData.id)) return prev; // Already exists
+                          const unpacked = unpackTaskFromDB(newData);
+                          return [...prev, {
+                              id: newData.id,
+                              columnId: newData.column_id,
+                              color: newData.color || 'yellow',
+                              ...unpacked
+                          } as Task];
+                      });
+                  }
+                  return currentCols;
+              });
+
+          } else if (payload.eventType === 'UPDATE') {
+              const newData = payload.new as any;
+              const unpacked = unpackTaskFromDB(newData);
+              
+              setTasks(prev => prev.map(t => {
+                  if (t.id === newData.id) {
+                      return {
+                          ...t,
+                          columnId: newData.column_id,
+                          color: newData.color || t.color,
+                          ...unpacked
+                      };
+                  }
+                  return t;
+              }));
+              
+              // SYNC SELECTED TASK (Important for Realtime Updates in Modal)
+              setSelectedTask(prev => {
+                  if (prev && prev.id === newData.id) {
+                      // We merge the update into the currently open task
+                      return {
+                          ...prev,
+                          columnId: newData.column_id,
+                          color: newData.color || prev.color,
+                          ...unpacked
+                      };
+                  }
+                  return prev;
+              });
+              
+          } else if (payload.eventType === 'DELETE') {
+              const oldId = payload.old.id;
+              setTasks(prev => prev.filter(t => t.id !== oldId));
+              // Close modal if deleted task was open
+              setSelectedTask(prev => (prev && prev.id === oldId) ? null : prev);
+              if (selectedTask && selectedTask.id === oldId) {
+                  setIsModalOpen(false);
+              }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        (payload) => {
+             if (payload.eventType === 'INSERT') {
+                 setProfiles(prev => [...prev, payload.new as Profile]);
+             } else if (payload.eventType === 'UPDATE') {
+                 setProfiles(prev => prev.map(p => p.id === payload.new.id ? payload.new as Profile : p));
+             } else if (payload.eventType === 'DELETE') {
+                 setProfiles(prev => prev.filter(p => p.id !== payload.old.id));
+             }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentProfile.id, selectedTask]); // Added selectedTask to dep array to access current state for modal close check? 
+  // Actually, using setState callback pattern is better for updates, but for 'selectedTask.id' check in DELETE it's tricky.
+  // Ideally we keep deps minimal. 
+
 
   // Click outside add menu
   useEffect(() => {
