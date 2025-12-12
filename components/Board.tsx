@@ -12,13 +12,14 @@ import {
   rectIntersection,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle, Calendar, Sparkles } from 'lucide-react';
-import { Column, Task, Id, PastelColor, Profile, AgendaEvent, DayNote } from '../types';
+import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle, Calendar, Sparkles, Link as LinkIcon } from 'lucide-react';
+import { Column, Task, Id, PastelColor, Profile, AgendaEvent, DayNote, ExtensionShortcut } from '../types';
 import List from './List';
 import Card from './Card';
 import TaskModal from './TaskModal';
 import AgendaWidget from './AgendaWidget';
 import QuoteWidget from './QuoteWidget';
+import ExtensionWidget from './ExtensionWidget';
 import AgendaModal from './AgendaModal';
 import { createPortal } from 'react-dom';
 import { PLACEHOLDER_TEXTS, COLORS } from '../constants';
@@ -95,6 +96,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [showQuote, setShowQuote] = useState(false);
   const [quotePos, setQuotePos] = useState({ x: 400, y: 120 });
 
+  // Extension Widget State
+  const [showExtension, setShowExtension] = useState(false);
+  const [extensionPos, setExtensionPos] = useState({ x: 100, y: 100 });
+  const [extensionShortcuts, setExtensionShortcuts] = useState<ExtensionShortcut[]>([]);
+
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
@@ -166,6 +172,45 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       }
   };
 
+  const saveExtensionLayout = async (x: number, y: number) => {
+      setExtensionPos({ x, y });
+      if (isSupabaseConfigured()) {
+          const settings = {
+              ...(activeProfile.settings || {}),
+              extension_pos: { x, y }
+          };
+          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
+      } else {
+          localStorage.setItem(`pastel_ext_pos_${currentProfile.id}`, JSON.stringify({ x, y }));
+      }
+  };
+
+  const saveExtensionVisibility = async (visible: boolean) => {
+      setShowExtension(visible);
+      if (isSupabaseConfigured()) {
+          const settings = {
+              ...(activeProfile.settings || {}),
+              extension_visible: visible
+          };
+          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
+      } else {
+          localStorage.setItem(`pastel_ext_vis_${currentProfile.id}`, String(visible));
+      }
+  };
+
+  const saveExtensionShortcuts = async (shortcuts: ExtensionShortcut[]) => {
+      setExtensionShortcuts(shortcuts);
+      if (isSupabaseConfigured()) {
+          const settings = {
+              ...(activeProfile.settings || {}),
+              extension_shortcuts: shortcuts
+          };
+          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
+      } else {
+          localStorage.setItem(`pastel_ext_shortcuts_${currentProfile.id}`, JSON.stringify(shortcuts));
+      }
+  };
+
   // --- PERSISTENCE HELPERS ---
   const saveColumnOrder = async (newColumns: Column[]) => {
       if (!isSupabaseConfigured()) {
@@ -206,14 +251,22 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       setLoading(true);
       setErrorMsg(null);
       
-      // Load Settings (Agenda & Quote)
+      // Load Settings (Agenda, Quote, Extension)
       if (currentProfile.settings) {
+          // Agenda
           if (currentProfile.settings.agenda_pos) setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_pos }));
           if (currentProfile.settings.agenda_size) setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_size }));
           if (currentProfile.settings.agenda_visible !== undefined) setShowAgenda(currentProfile.settings.agenda_visible);
           
+          // Quote
           if (currentProfile.settings.quote_pos) setQuotePos(currentProfile.settings.quote_pos);
           if (currentProfile.settings.quote_visible !== undefined) setShowQuote(currentProfile.settings.quote_visible);
+
+          // Extension
+          if (currentProfile.settings.extension_pos) setExtensionPos(currentProfile.settings.extension_pos);
+          if (currentProfile.settings.extension_visible !== undefined) setShowExtension(currentProfile.settings.extension_visible);
+          if (currentProfile.settings.extension_shortcuts) setExtensionShortcuts(currentProfile.settings.extension_shortcuts);
+
       } else if (!isSupabaseConfigured()) {
           // Fallback Local
           const savedAgendaLayout = localStorage.getItem(`pastel_agenda_layout_${currentProfile.id}`);
@@ -225,6 +278,13 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           if (savedQuotePos) setQuotePos(JSON.parse(savedQuotePos));
           const savedQuoteVis = localStorage.getItem(`pastel_quote_vis_${currentProfile.id}`);
           if (savedQuoteVis === 'true') setShowQuote(true);
+
+          const savedExtPos = localStorage.getItem(`pastel_ext_pos_${currentProfile.id}`);
+          if (savedExtPos) setExtensionPos(JSON.parse(savedExtPos));
+          const savedExtVis = localStorage.getItem(`pastel_ext_vis_${currentProfile.id}`);
+          if (savedExtVis === 'true') setShowExtension(true);
+          const savedExtShortcuts = localStorage.getItem(`pastel_ext_shortcuts_${currentProfile.id}`);
+          if (savedExtShortcuts) setExtensionShortcuts(JSON.parse(savedExtShortcuts));
       }
 
       if (!isSupabaseConfigured()) {
@@ -363,6 +423,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       setShowAddMenu(false);
       saveQuoteVisibility(!showQuote);
   };
+
+  const toggleExtension = () => {
+      setShowAddMenu(false);
+      saveExtensionVisibility(!showExtension);
+  }
 
   const addAgendaEvent = async (evt: Partial<AgendaEvent>) => {
       const newEvt = { ...evt, id: crypto.randomUUID(), profile_id: currentProfile.id } as AgendaEvent;
@@ -546,6 +611,16 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
              onLayoutChange={saveQuoteLayout}
           />
       )}
+
+      {showExtension && (
+          <ExtensionWidget 
+            onRemove={() => saveExtensionVisibility(false)}
+            initialPosition={extensionPos}
+            onLayoutChange={saveExtensionLayout}
+            shortcuts={extensionShortcuts}
+            onUpdateShortcuts={saveExtensionShortcuts}
+          />
+      )}
       
       <AgendaModal
         isOpen={isAgendaModalOpen}
@@ -623,6 +698,10 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                     <button onClick={toggleQuote} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
                         <div className="bg-purple-100 p-1 rounded text-purple-600"><Sparkles size={18} /></div>
                         {showQuote ? 'Ocultar Frase' : 'Frase do Dia'}
+                    </button>
+                    <button onClick={toggleExtension} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
+                        <div className="bg-sky-100 p-1 rounded text-sky-600"><LinkIcon size={18} /></div>
+                        {showExtension ? 'Ocultar Extensão' : 'Extensão'}
                     </button>
                 </div>
             )}

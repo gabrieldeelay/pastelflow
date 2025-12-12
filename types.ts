@@ -29,6 +29,13 @@ export interface Column {
   position: number;
 }
 
+export interface ExtensionShortcut {
+  id: string;
+  title: string;
+  url: string;
+  icon: 'globe' | 'search' | 'mail' | 'code' | 'video' | 'music' | 'image' | 'shopping-cart' | 'message-circle' | 'zap';
+}
+
 export interface Profile {
   id: string;
   name: string;
@@ -40,6 +47,9 @@ export interface Profile {
     agenda_visible?: boolean;
     quote_pos?: { x: number; y: number };
     quote_visible?: boolean;
+    extension_pos?: { x: number; y: number };
+    extension_visible?: boolean;
+    extension_shortcuts?: ExtensionShortcut[];
   };
 }
 

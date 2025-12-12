@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, ChevronLeft, ChevronRight, Calendar, Plus, Trash2, Check, Clock, Flag, AlertCircle } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Calendar, Plus, Trash2, Check, Clock, Flag, AlertCircle, PartyPopper } from 'lucide-react';
 import { AgendaEvent, DayNote, PastelColor } from '../types';
-import { COLOR_KEYS, COLOR_HEX } from '../constants';
+import { COLOR_KEYS, COLOR_HEX, COLORS } from '../constants';
 import DayDetailModal from './DayDetailModal';
 
 interface Props {
@@ -19,6 +19,54 @@ interface Props {
 
 const VIEWS = ['dia', 'semana', 'mês'] as const;
 type ViewMode = typeof VIEWS[number];
+
+// --- HOLIDAY LOGIC ---
+const HOLIDAYS: Record<string, string> = {
+    // Fixos (MM-DD)
+    '01-01': 'Confraternização Universal',
+    '04-21': 'Tiradentes',
+    '05-01': 'Dia do Trabalho',
+    '09-07': 'Independência do Brasil',
+    '10-12': 'N. Sra. Aparecida',
+    '11-02': 'Finados',
+    '11-15': 'Proclamação da República',
+    '12-25': 'Natal',
+    
+    // Serra - ES
+    '12-08': 'N. Sra. da Conceição (Serra)',
+    '12-26': 'Dia do Serrano (Serra)',
+    '06-29': 'São Pedro (Serra)',
+
+    // Móveis (Hardcoded para 2024/2025 para simplicidade)
+    // 2024
+    '2024-02-12': 'Carnaval',
+    '2024-02-13': 'Carnaval',
+    '2024-03-29': 'Paixão de Cristo',
+    '2024-03-31': 'Páscoa',
+    '2024-05-30': 'Corpus Christi',
+    // 2025
+    '2025-03-03': 'Carnaval',
+    '2025-03-04': 'Carnaval',
+    '2025-04-18': 'Paixão de Cristo',
+    '2025-04-20': 'Páscoa',
+    '2025-06-19': 'Corpus Christi',
+};
+
+const getHolidayName = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    // Check Full Date (YYYY-MM-DD) for movable
+    const fullDateKey = `${year}-${month}-${day}`;
+    if (HOLIDAYS[fullDateKey]) return HOLIDAYS[fullDateKey];
+
+    // Check Fixed Date (MM-DD)
+    const fixedKey = `${month}-${day}`;
+    if (HOLIDAYS[fixedKey]) return HOLIDAYS[fixedKey];
+
+    return null;
+};
 
 const AgendaModal: React.FC<Props> = ({ 
     isOpen, onClose, events, dayNotes, 
@@ -158,22 +206,34 @@ const AgendaModal: React.FC<Props> = ({
                     if (!day) return <div key={idx} className="bg-transparent" />;
                     
                     const cellDate = new Date(year, month, day);
+                    const holidayName = getHolidayName(cellDate);
                     const isToday = cellDate.toDateString() === new Date().toDateString();
                     
                     const dayEvents = events.filter(e => {
                         const d = new Date(e.start_time);
                         return d.getDate() === day && d.getMonth() === month && d.getFullYear() === year;
                     });
+                    
                     const hasEvents = dayEvents.length > 0;
-                    const hasHighPriority = dayEvents.some(e => e.priority === 'high' && !e.is_completed);
 
-                    let cellClasses = "rounded-lg p-2 flex flex-col gap-1 transition-all border relative cursor-pointer ";
+                    let cellClasses = "rounded-xl p-2 flex flex-col gap-1 transition-all border relative cursor-pointer ";
+                    
+                    // Logic: 
+                    // 1. Is Today -> Blue Ring (Priority Indication)
+                    // 2. Has Events -> Soft Yellow Background
+                    // 3. Holiday (No Events) -> Pastel Red Background
+                    // 4. Empty -> Gray Background
+
                     if (isToday) {
-                        cellClasses += "bg-blue-50/50 ring-2 ring-blue-300 border-blue-200 ";
-                    } else if (hasEvents) {
-                        cellClasses += "bg-amber-100 border-amber-300 shadow-sm hover:brightness-95 ";
+                        cellClasses += "ring-4 ring-blue-200 z-10 ";
+                    }
+
+                    if (hasEvents) {
+                        cellClasses += "bg-yellow-50 border-yellow-200 hover:bg-yellow-100 ";
+                    } else if (holidayName) {
+                        cellClasses += "bg-red-50 border-red-200 hover:bg-red-100 ";
                     } else {
-                        cellClasses += "bg-stone-50 border-stone-100 hover:border-stone-300 hover:bg-white ";
+                        cellClasses += "bg-stone-100 border-stone-200 hover:bg-stone-200 ";
                     }
 
                     return (
@@ -183,22 +243,31 @@ const AgendaModal: React.FC<Props> = ({
                             onContextMenu={(e) => handleRightClick(e, cellDate)}
                             onClick={() => handleDayClick(cellDate)}
                         >
-                            <div className="flex justify-between items-start">
-                                <span className={`text-xs font-bold ${isToday ? 'text-blue-600' : (hasEvents ? 'text-amber-800' : 'text-stone-500')}`}>{day}</span>
-                                {hasHighPriority && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm animate-pulse" />}
+                            <div className="flex justify-between items-start mb-1">
+                                <span className={`text-xs font-bold ${isToday ? 'text-blue-600' : (holidayName ? 'text-red-400' : 'text-stone-500')}`}>{day}</span>
+                                {holidayName && (
+                                    <span className="text-[9px] leading-tight text-right text-red-400 font-bold uppercase tracking-tighter max-w-[70%] truncate ml-1">
+                                        {holidayName}
+                                    </span>
+                                )}
                             </div>
                             
-                            <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar max-h-[60px]">
-                                {dayEvents.map(evt => (
-                                    <div 
-                                        key={evt.id} 
-                                        className={`text-[10px] px-1.5 py-0.5 rounded truncate flex items-center gap-1 shadow-sm ${evt.priority === 'high' && !evt.is_completed ? 'border-l-2 border-l-red-400' : ''}`}
-                                        style={{ backgroundColor: evt.is_completed ? '#e5e7eb' : 'white', border: evt.priority !== 'high' ? '1px solid ' + (COLOR_HEX[evt.category] || '#e5e5e5') : undefined }}
-                                    >
-                                        {evt.priority !== 'high' && <div className={`w-1.5 h-1.5 rounded-full shrink-0`} style={{ backgroundColor: COLOR_HEX[evt.category] }} />}
-                                        <span className={`truncate text-stone-600 ${evt.is_completed ? 'line-through opacity-50' : ''}`}>{evt.title}</span>
-                                    </div>
-                                ))}
+                            <div className="flex flex-col gap-1.5 overflow-y-auto custom-scrollbar max-h-[60px]">
+                                {dayEvents.map(evt => {
+                                    const colorStyle = COLORS[evt.category] || COLORS.blue;
+                                    return (
+                                        <div 
+                                            key={evt.id} 
+                                            className={`
+                                                text-[10px] px-1.5 py-1 rounded-md truncate font-bold shadow-sm transition-transform hover:scale-[1.02]
+                                                ${evt.is_completed ? 'opacity-50 line-through bg-stone-200 text-stone-500' : colorStyle}
+                                                ${evt.priority === 'high' && !evt.is_completed ? 'ring-1 ring-red-400' : ''}
+                                            `}
+                                        >
+                                            {evt.title}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     );
@@ -215,12 +284,13 @@ const AgendaModal: React.FC<Props> = ({
     return (
         <div className="grid grid-cols-7 h-full gap-2 overflow-hidden select-none">
             {days.map((date, idx) => {
+                const holidayName = getHolidayName(date);
                 const isToday = date.toDateString() === new Date().toDateString();
+                
                 const dayEvents = events.filter(e => {
                     const d = new Date(e.start_time);
                     return d.getDate() === date.getDate() && d.getMonth() === date.getMonth() && d.getFullYear() === date.getFullYear();
                 }).sort((a,b) => {
-                    // Sort by Time then Priority (High first)
                     const timeA = new Date(a.start_time).getTime();
                     const timeB = new Date(b.start_time).getTime();
                     if(timeA !== timeB) return timeA - timeB;
@@ -228,27 +298,51 @@ const AgendaModal: React.FC<Props> = ({
                     return (pMap[b.priority || 'low'] || 0) - (pMap[a.priority || 'low'] || 0);
                 });
 
+                const hasEvents = dayEvents.length > 0;
+                
+                // Logic Same as Month View
+                let bgClass = '';
+                if (hasEvents) {
+                    bgClass = 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100';
+                } else if (holidayName) {
+                    bgClass = 'bg-red-50 border-red-200 hover:bg-red-100';
+                } else {
+                    bgClass = 'bg-stone-100 border-stone-200';
+                }
+                
+                const todayClass = isToday ? 'ring-2 ring-blue-300' : '';
+
                 return (
                     <div 
                         key={idx} 
-                        className={`flex flex-col h-full rounded-2xl border cursor-pointer hover:border-stone-300 transition-colors ${isToday ? 'bg-blue-50/30 border-blue-200' : 'bg-stone-50 border-stone-200'}`}
+                        className={`flex flex-col h-full rounded-2xl border cursor-pointer transition-colors ${bgClass} ${todayClass}`}
                         onContextMenu={(e) => handleRightClick(e, date)}
                         onClick={() => handleDayClick(date)}
                     >
-                        <div className="p-3 text-center border-b border-stone-200/50">
+                        <div className={`p-3 text-center border-b ${hasEvents ? 'border-yellow-200/50' : (holidayName ? 'border-red-200/50' : 'border-stone-200/50')}`}>
                             <p className="text-[10px] font-bold uppercase text-stone-400">{weekDays[idx]}</p>
-                            <p className={`text-xl font-black ${isToday ? 'text-blue-600' : 'text-stone-700'}`}>{date.getDate()}</p>
+                            <p className={`text-xl font-black ${isToday ? 'text-blue-600' : (holidayName ? 'text-red-400' : 'text-stone-700')}`}>{date.getDate()}</p>
+                            {holidayName && (
+                                <p className="text-[9px] font-bold text-red-400 uppercase truncate mt-1 leading-none">
+                                    {holidayName}
+                                </p>
+                            )}
                         </div>
                         <div className="flex-1 p-2 overflow-y-auto custom-scrollbar flex flex-col gap-2">
-                             {dayEvents.map(evt => (
-                                 <div key={evt.id} className={`group bg-white p-2 rounded-xl shadow-sm border border-stone-100 flex flex-col gap-1 relative ${evt.priority === 'high' && !evt.is_completed ? 'ring-1 ring-red-100' : ''}`}>
-                                     <div className="flex justify-between items-start gap-1">
-                                        <span className={`text-xs font-bold text-stone-700 line-clamp-2 ${evt.is_completed ? 'line-through text-stone-400' : ''}`}>{evt.title}</span>
-                                        {evt.priority === 'high' && !evt.is_completed && <Flag size={10} className="text-red-500 shrink-0 mt-0.5" fill="currentColor" />}
+                             {dayEvents.map(evt => {
+                                 const colorStyle = COLORS[evt.category] || COLORS.blue;
+                                 return (
+                                     <div key={evt.id} className={`group p-2.5 rounded-xl shadow-sm border border-transparent flex flex-col gap-1 relative transition-all hover:-translate-y-0.5 ${evt.is_completed ? 'bg-stone-200 text-stone-500 opacity-60' : colorStyle}`}>
+                                         <div className="flex justify-between items-start gap-1">
+                                            <span className={`text-xs font-bold line-clamp-2 ${evt.is_completed ? 'line-through' : ''}`}>{evt.title}</span>
+                                            {evt.priority === 'high' && !evt.is_completed && <Flag size={10} className="text-red-600 shrink-0 mt-0.5" fill="currentColor" />}
+                                         </div>
+                                         <div className="text-[10px] opacity-70 font-mono">
+                                             {new Date(evt.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                         </div>
                                      </div>
-                                     <div className="absolute top-2 right-full mr-1 w-1 h-8 rounded-full" style={{ backgroundColor: COLOR_HEX[evt.category] }}></div>
-                                 </div>
-                             ))}
+                                 );
+                             })}
                         </div>
                     </div>
                 );
@@ -258,8 +352,9 @@ const AgendaModal: React.FC<Props> = ({
   };
 
   const renderDayView = () => {
+      const holidayName = getHolidayName(currentDate);
       return (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex h-full items-center justify-center flex-col gap-4">
               <button 
                 onClick={() => handleDayClick(currentDate)}
                 className="bg-stone-800 text-white px-8 py-4 rounded-2xl font-bold shadow-xl hover:bg-stone-700 flex items-center gap-2"
@@ -267,6 +362,12 @@ const AgendaModal: React.FC<Props> = ({
                   <Calendar />
                   Abrir Detalhes de {currentDate.toLocaleDateString()}
               </button>
+              {holidayName && (
+                  <div className="flex items-center gap-2 text-red-400 font-bold bg-red-50 px-4 py-2 rounded-xl">
+                      <PartyPopper size={18} />
+                      {holidayName}
+                  </div>
+              )}
           </div>
       )
   }
