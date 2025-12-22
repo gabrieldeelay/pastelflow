@@ -9,9 +9,10 @@ import { COLORS } from '../constants';
 interface Props {
   task: Task;
   onClick: () => void;
+  isOverlay?: boolean;
 }
 
-const Card: React.FC<Props> = ({ task, onClick }) => {
+const Card: React.FC<Props> = ({ task, onClick, isOverlay }) => {
   const {
     setNodeRef,
     attributes,
@@ -36,7 +37,7 @@ const Card: React.FC<Props> = ({ task, onClick }) => {
   const hasDescription = task.description && task.description.length > 0;
   const hasAttachments = task.attachments && task.attachments.length > 0;
 
-  if (isDragging) {
+  if (isDragging && !isOverlay) {
     return (
       <div
         ref={setNodeRef}
@@ -84,6 +85,7 @@ const Card: React.FC<Props> = ({ task, onClick }) => {
         cursor-pointer
         border
         hover:-translate-y-1
+        ${isOverlay ? 'shadow-2xl scale-[1.03] ring-2 ring-white/50 z-[100] rotate-1' : ''}
       `}
     >
       <div className="flex-grow w-full overflow-hidden">

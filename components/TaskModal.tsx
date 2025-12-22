@@ -191,6 +191,7 @@ const TaskModal: React.FC<Props> = ({
   const [attachments, setAttachments] = useState<Attachment[]>(task.attachments || []);
   
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [isClosingAnimate, setIsClosingAnimate] = useState(false);
 
   // Attachments
   const [newLinkUrl, setNewLinkUrl] = useState('');
@@ -228,7 +229,7 @@ const TaskModal: React.FC<Props> = ({
 
   // --- AUTOSAVE LOGIC ---
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isClosingAnimate) return;
     
     setSaveStatus('saving');
 
@@ -255,6 +256,7 @@ const TaskModal: React.FC<Props> = ({
       setColor(task.color);
       setAttachments(task.attachments || []);
       setSaveStatus('saved');
+      setIsClosingAnimate(false);
     }
   }, [isOpen]); 
 
@@ -278,6 +280,13 @@ const TaskModal: React.FC<Props> = ({
       attachments
     });
     onClose();
+  };
+
+  const handleDeleteFinal = () => {
+      setIsClosingAnimate(true);
+      setTimeout(() => {
+          onDelete(task.id);
+      }, 400); // Match animation duration
   };
 
   const handleAddAttachment = () => {
@@ -421,11 +430,11 @@ const TaskModal: React.FC<Props> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm fade-in p-4 sm:p-6"
+      className={`fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm p-4 sm:p-6 transition-opacity duration-300 ${isClosingAnimate ? 'opacity-0' : 'opacity-100'}`}
       onClick={handleManualSave}
     >
       <div 
-        className="bg-[#fdfbf7] w-full max-w-5xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
+        className={`bg-[#fdfbf7] w-full max-w-5xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden relative transition-all duration-300 ${isClosingAnimate ? 'scale-95 opacity-0 blur-sm' : 'scale-100 opacity-100'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Color Strip with Status */}
@@ -670,7 +679,7 @@ const TaskModal: React.FC<Props> = ({
                              Cancelar
                            </button>
                            <button 
-                             onClick={() => onDelete(task.id)}
+                             onClick={handleDeleteFinal}
                              className="flex-1 p-3 rounded-xl text-white bg-red-500 hover:bg-red-600 text-sm font-bold"
                            >
                              Confirmar?

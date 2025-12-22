@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { 
   DndContext, 
-  closestCenter, 
+  closestCorners, 
   KeyboardSensor, 
   PointerSensor, 
   useSensor, 
@@ -72,7 +72,7 @@ const SortableShortcutItem: React.FC<SortableItemProps> = ({ item, onEdit, onDel
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 60 : 'auto',
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging && !isOverlay ? 0.3 : 1,
   };
 
   const IconComp = ICONS[item.icon] || Globe;
@@ -81,7 +81,7 @@ const SortableShortcutItem: React.FC<SortableItemProps> = ({ item, onEdit, onDel
     <div 
       ref={setNodeRef} 
       style={style}
-      className={`group/item flex items-center justify-between p-2 rounded-xl border border-stone-100 bg-stone-50 hover:bg-white hover:border-sky-200 hover:shadow-sm transition-all mb-2 ${isDragging ? 'opacity-40 ring-1 ring-sky-100 bg-white border-sky-100' : ''} ${isOverlay ? 'shadow-2xl ring-2 ring-sky-200 bg-white !opacity-100 scale-[1.02]' : ''}`}
+      className={`group/item flex items-center justify-between p-2 rounded-xl border border-stone-100 bg-stone-50 hover:bg-white hover:border-sky-200 hover:shadow-sm transition-all mb-2 ${isDragging && !isOverlay ? 'border-dashed border-stone-300 bg-stone-100/50' : ''} ${isOverlay ? 'shadow-2xl ring-2 ring-sky-300 bg-white !opacity-100 scale-[1.05] border-sky-200 z-[100]' : ''}`}
     >
       <div 
         {...attributes} 
@@ -134,7 +134,7 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
   const sensors = useSensors(
     useSensor(PointerSensor, {
         activationConstraint: {
-            distance: 8,
+            distance: 4, // More responsive
         },
     }),
     useSensor(KeyboardSensor, {
@@ -266,7 +266,6 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
       const oldIndex = shortcuts.findIndex((s) => s.id === active.id);
       const newIndex = shortcuts.findIndex((s) => s.id === over.id);
       const newShortcuts = arrayMove(shortcuts, oldIndex, newIndex);
-      // Use the provided reorder utility and sync with Board
       onUpdateShortcuts(newShortcuts);
     }
     setActiveId(null);
@@ -311,7 +310,7 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
              <div className="flex flex-col">
                  <DndContext 
                    sensors={sensors}
-                   collisionDetection={closestCenter}
+                   collisionDetection={closestCorners}
                    onDragStart={handleDragStart}
                    onDragEnd={handleDragEndShortcuts}
                  >
@@ -338,6 +337,7 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
                                 styles: { active: { opacity: '0.4' } }
                             })
                         }}
+                        className="pointer-events-none"
                    >
                      {activeShortcut ? (
                         <SortableShortcutItem 
