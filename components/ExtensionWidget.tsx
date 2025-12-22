@@ -2,8 +2,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Link as LinkIcon, X, GripHorizontal, Plus, Globe, Search, Mail, Code, 
-  Video, Music, Image, ShoppingCart, MessageCircle, Zap, Trash2, Pencil, ExternalLink, AlertCircle
+  Video, Music, Image, ShoppingCart, MessageCircle, Zap, Trash2, Pencil, ExternalLink, AlertCircle, GripVertical
 } from 'lucide-react';
+import { 
+  DndContext, 
+  closestCenter, 
+  KeyboardSensor, 
+  PointerSensor, 
+  useSensor, 
+  useSensors, 
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  defaultDropAnimationSideEffects
+} from '@dnd-kit/core';
+import { 
+  arrayMove, 
+  SortableContext, 
+  sortableKeyboardCoordinates, 
+  verticalListSortingStrategy, 
+  useSortable 
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { ExtensionShortcut } from '../types';
 
 interface Props {
@@ -29,9 +49,77 @@ const ICONS = {
 
 type IconKey = keyof typeof ICONS;
 
+// --- Sortable Item Component ---
+interface SortableItemProps {
+  item: ExtensionShortcut;
+  onEdit: (item: ExtensionShortcut) => void;
+  onDelete: (id: string) => void;
+  onClick: (url: string) => void;
+  isOverlay?: boolean;
+}
+
+const SortableShortcutItem: React.FC<SortableItemProps> = ({ item, onEdit, onDelete, onClick, isOverlay }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 60 : 'auto',
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  const IconComp = ICONS[item.icon] || Globe;
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      style={style}
+      className={`group/item flex items-center justify-between p-2 rounded-xl border border-stone-100 bg-stone-50 hover:bg-white hover:border-sky-200 hover:shadow-sm transition-all mb-2 ${isDragging ? 'opacity-40 ring-1 ring-sky-100 bg-white border-sky-100' : ''} ${isOverlay ? 'shadow-2xl ring-2 ring-sky-200 bg-white !opacity-100 scale-[1.02]' : ''}`}
+    >
+      <div 
+        {...attributes} 
+        {...listeners} 
+        style={{ touchAction: 'none' }}
+        className="cursor-grab active:cursor-grabbing p-1.5 text-stone-300 hover:text-sky-400 transition-colors"
+      >
+        <GripVertical size={14} />
+      </div>
+      
+      <div 
+        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+        onClick={() => !isOverlay && onClick(item.url)}
+      >
+        <div className="bg-white p-2 rounded-lg text-sky-500 border border-stone-100 group-hover/item:border-sky-100">
+          <IconComp size={16} />
+        </div>
+        <span className="font-bold text-stone-600 text-sm truncate">{item.title}</span>
+      </div>
+      
+      {!isOverlay && (
+        <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+            <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-stone-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg">
+                <Pencil size={14} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                <Trash2 size={14} />
+            </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemove, initialPosition, onLayoutChange }) => {
   const [position, setPosition] = useState(initialPosition || { x: 100, y: 100 });
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingWidget, setIsDraggingWidget] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
   
   // Editor State
   const [view, setView] = useState<'list' | 'editor'>('list');
@@ -42,6 +130,17 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
 
   const widgetRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+        activationConstraint: {
+            distance: 8,
+        },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // --- SAFETY BOUNDS CHECK ---
   useEffect(() => {
@@ -76,16 +175,16 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
     return () => { clearTimeout(timer); window.removeEventListener('resize', ensureVisible); };
   }, []);
 
-  // --- DRAG LOGIC ---
+  // --- WIDGET DRAG LOGIC ---
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsDragging(true);
+    setIsDraggingWidget(true);
     dragOffset.current = { x: e.clientX - position.x, y: e.clientY - position.y };
   };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
+      if (isDraggingWidget) {
         const rawX = e.clientX - dragOffset.current.x;
         const rawY = e.clientY - dragOffset.current.y;
         const widgetWidth = widgetRef.current?.offsetWidth || 320;
@@ -96,12 +195,12 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
       }
     };
     const handleMouseUp = () => {
-      if (isDragging) {
-        setIsDragging(false);
+      if (isDraggingWidget) {
+        setIsDraggingWidget(false);
         onLayoutChange(position.x, position.y);
       }
     };
-    if (isDragging) {
+    if (isDraggingWidget) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
@@ -109,7 +208,7 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, position, onLayoutChange]);
+  }, [isDraggingWidget, position, onLayoutChange]);
 
   // --- CRUD LOGIC ---
   const handleAddNew = () => {
@@ -143,11 +242,9 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
       }
 
       if (editId) {
-          // Update
           const updated = shortcuts.map(s => s.id === editId ? { ...s, title: formTitle, url: finalUrl, icon: formIcon } : s);
           onUpdateShortcuts(updated);
       } else {
-          // Create
           const newShortcut: ExtensionShortcut = {
               id: crypto.randomUUID(),
               title: formTitle,
@@ -159,14 +256,32 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
       setView('list');
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEndShortcuts = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = shortcuts.findIndex((s) => s.id === active.id);
+      const newIndex = shortcuts.findIndex((s) => s.id === over.id);
+      const newShortcuts = arrayMove(shortcuts, oldIndex, newIndex);
+      // Use the provided reorder utility and sync with Board
+      onUpdateShortcuts(newShortcuts);
+    }
+    setActiveId(null);
+  };
+
   const openLink = (url: string) => {
       window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const activeShortcut = activeId ? shortcuts.find(s => s.id === activeId) : null;
+
   return (
     <div 
       ref={widgetRef}
-      style={{ position: 'absolute', left: position.x, top: position.y, zIndex: 45, width: 320 }}
+      style={{ position: 'fixed', left: position.x, top: position.y, zIndex: 45, width: 320 }}
       className="bg-white rounded-3xl shadow-xl border border-stone-200 overflow-hidden flex flex-col group animate-in fade-in zoom-in-95"
     >
       {/* Header */}
@@ -193,42 +308,58 @@ const ExtensionWidget: React.FC<Props> = ({ shortcuts, onUpdateShortcuts, onRemo
       <div className="p-4 bg-white min-h-[100px]">
          
          {view === 'list' && (
-             <div className="flex flex-col gap-2">
-                 {shortcuts.map(item => {
-                     const IconComp = ICONS[item.icon] || Globe;
-                     return (
-                         <div key={item.id} className="group/item flex items-center justify-between p-2 rounded-xl border border-stone-100 bg-stone-50 hover:bg-white hover:border-sky-200 hover:shadow-sm transition-all">
-                             <div 
-                                className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
-                                onClick={() => openLink(item.url)}
-                             >
-                                 <div className="bg-white p-2 rounded-lg text-sky-500 border border-stone-100 group-hover/item:border-sky-100">
-                                     <IconComp size={16} />
-                                 </div>
-                                 <span className="font-bold text-stone-600 text-sm truncate">{item.title}</span>
-                             </div>
-                             
-                             <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                 <button onClick={() => handleEdit(item)} className="p-1.5 text-stone-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg">
-                                     <Pencil size={14} />
-                                 </button>
-                                 <button onClick={() => handleDelete(item.id)} className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
-                                     <Trash2 size={14} />
-                                 </button>
-                             </div>
-                         </div>
-                     );
-                 })}
+             <div className="flex flex-col">
+                 <DndContext 
+                   sensors={sensors}
+                   collisionDetection={closestCenter}
+                   onDragStart={handleDragStart}
+                   onDragEnd={handleDragEndShortcuts}
+                 >
+                   <SortableContext 
+                     items={shortcuts.map(s => s.id)}
+                     strategy={verticalListSortingStrategy}
+                   >
+                     <div className="flex flex-col">
+                        {shortcuts.map(item => (
+                          <SortableShortcutItem 
+                            key={item.id} 
+                            item={item} 
+                            onEdit={handleEdit} 
+                            onDelete={handleDelete} 
+                            onClick={openLink}
+                          />
+                        ))}
+                     </div>
+                   </SortableContext>
+                   
+                   <DragOverlay 
+                        dropAnimation={{
+                            sideEffects: defaultDropAnimationSideEffects({
+                                styles: { active: { opacity: '0.4' } }
+                            })
+                        }}
+                   >
+                     {activeShortcut ? (
+                        <SortableShortcutItem 
+                          item={activeShortcut}
+                          onEdit={() => {}}
+                          onDelete={() => {}}
+                          onClick={() => {}}
+                          isOverlay
+                        />
+                     ) : null}
+                   </DragOverlay>
+                 </DndContext>
 
                  {shortcuts.length < 5 ? (
                      <button 
                         onClick={handleAddNew}
-                        className="w-full py-3 mt-2 border-2 border-dashed border-stone-200 rounded-xl flex items-center justify-center gap-2 text-stone-400 hover:text-stone-600 hover:border-stone-300 hover:bg-stone-50 transition-all font-bold text-xs uppercase tracking-wide"
+                        className="w-full py-3 mt-1 border-2 border-dashed border-stone-200 rounded-xl flex items-center justify-center gap-2 text-stone-400 hover:text-stone-600 hover:border-stone-300 hover:bg-stone-50 transition-all font-bold text-xs uppercase tracking-wide"
                      >
                          <Plus size={16} /> Adicionar Atalho
                      </button>
                  ) : (
-                     <div className="mt-2 flex items-center justify-center gap-2 text-amber-500 text-xs font-bold bg-amber-50 p-2 rounded-lg border border-amber-100">
+                     <div className="mt-1 flex items-center justify-center gap-2 text-amber-500 text-xs font-bold bg-amber-50 p-2 rounded-lg border border-amber-100">
                          <AlertCircle size={14} />
                          <span>Limite de 5 extensões atingido</span>
                      </div>

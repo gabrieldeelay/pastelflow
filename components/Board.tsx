@@ -116,97 +116,87 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   );
 
   const columnsId = useMemo(() => columns.map((col) => col.id), [columns]);
-  const activeProfile = useMemo(() => profiles.find(p => String(p.id) === String(currentProfile.id)) || currentProfile, [profiles, currentProfile]);
+  
+  // Important: Always use the latest version of the profile from the profiles state
+  const activeProfile = useMemo(() => {
+    return profiles.find(p => String(p.id) === String(currentProfile.id)) || currentProfile;
+  }, [profiles, currentProfile]);
+
+  // Helper to update settings both locally and in DB
+  const updateProfileSettings = async (newSettings: any) => {
+      // Update local profiles list immediately to keep UI snappy and sources of truth in sync
+      setProfiles(prev => prev.map(p => 
+        String(p.id) === String(currentProfile.id) 
+          ? { ...p, settings: { ...(p.settings || {}), ...newSettings } } 
+          : p
+      ));
+
+      if (isSupabaseConfigured()) {
+          // Fetch the current latest settings from the server to merge correctly
+          const { data: latestProfile } = await supabase.from('profiles').select('settings').eq('id', currentProfile.id).single();
+          const mergedSettings = { ...(latestProfile?.settings || {}), ...newSettings };
+          await supabase.from('profiles').update({ settings: mergedSettings }).eq('id', currentProfile.id);
+      }
+  };
 
   // --- SAVE LAYOUTS TO DB ---
   const saveAgendaLayout = async (x: number, y: number, w: number, h: number) => {
       setAgendaLayout({ x, y, w, h });
-      if (isSupabaseConfigured()) {
-          const settings = { 
-              ...(activeProfile.settings || {}), 
-              agenda_pos: { x, y },
-              agenda_size: { w, h }
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      updateProfileSettings({ agenda_pos: { x, y }, agenda_size: { w, h } });
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_agenda_layout_${currentProfile.id}`, JSON.stringify({ x, y, w, h }));
       }
   };
 
   const saveAgendaVisibility = async (visible: boolean) => {
       setShowAgenda(visible);
-      if (isSupabaseConfigured()) {
-          const settings = { 
-              ...(activeProfile.settings || {}), 
-              agenda_visible: visible 
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      updateProfileSettings({ agenda_visible: visible });
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_agenda_vis_${currentProfile.id}`, String(visible));
       }
   }
 
   const saveQuoteLayout = async (x: number, y: number) => {
       setQuotePos({ x, y });
-      if (isSupabaseConfigured()) {
-          const settings = {
-              ...(activeProfile.settings || {}),
-              quote_pos: { x, y }
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      updateProfileSettings({ quote_pos: { x, y } });
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_quote_pos_${currentProfile.id}`, JSON.stringify({ x, y }));
       }
   };
 
   const saveQuoteVisibility = async (visible: boolean) => {
       setShowQuote(visible);
-      if (isSupabaseConfigured()) {
-          const settings = {
-              ...(activeProfile.settings || {}),
-              quote_visible: visible
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      updateProfileSettings({ quote_visible: visible });
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_quote_vis_${currentProfile.id}`, String(visible));
       }
   };
 
   const saveExtensionLayout = async (x: number, y: number) => {
       setExtensionPos({ x, y });
-      if (isSupabaseConfigured()) {
-          const settings = {
-              ...(activeProfile.settings || {}),
-              extension_pos: { x, y }
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      updateProfileSettings({ extension_pos: { x, y } });
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_ext_pos_${currentProfile.id}`, JSON.stringify({ x, y }));
       }
   };
 
   const saveExtensionVisibility = async (visible: boolean) => {
       setShowExtension(visible);
-      if (isSupabaseConfigured()) {
-          const settings = {
-              ...(activeProfile.settings || {}),
-              extension_visible: visible
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      updateProfileSettings({ extension_visible: visible });
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_ext_vis_${currentProfile.id}`, String(visible));
       }
   };
 
   const saveExtensionShortcuts = async (shortcuts: ExtensionShortcut[]) => {
+      // 1. Update Board's local state for immediate re-render
       setExtensionShortcuts(shortcuts);
-      if (isSupabaseConfigured()) {
-          const settings = {
-              ...(activeProfile.settings || {}),
-              extension_shortcuts: shortcuts
-          };
-          await supabase.from('profiles').update({ settings }).eq('id', currentProfile.id);
-      } else {
+      
+      // 2. Persist via profile settings update
+      updateProfileSettings({ extension_shortcuts: shortcuts });
+      
+      // 3. Fallback for offline mode
+      if (!isSupabaseConfigured()) {
           localStorage.setItem(`pastel_ext_shortcuts_${currentProfile.id}`, JSON.stringify(shortcuts));
       }
   };
@@ -251,40 +241,17 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       setLoading(true);
       setErrorMsg(null);
       
-      // Load Settings (Agenda, Quote, Extension)
-      if (currentProfile.settings) {
-          // Agenda
-          if (currentProfile.settings.agenda_pos) setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_pos }));
-          if (currentProfile.settings.agenda_size) setAgendaLayout(prev => ({ ...prev, ...currentProfile.settings!.agenda_size }));
-          if (currentProfile.settings.agenda_visible !== undefined) setShowAgenda(currentProfile.settings.agenda_visible);
-          
-          // Quote
-          if (currentProfile.settings.quote_pos) setQuotePos(currentProfile.settings.quote_pos);
-          if (currentProfile.settings.quote_visible !== undefined) setShowQuote(currentProfile.settings.quote_visible);
-
-          // Extension
-          if (currentProfile.settings.extension_pos) setExtensionPos(currentProfile.settings.extension_pos);
-          if (currentProfile.settings.extension_visible !== undefined) setShowExtension(currentProfile.settings.extension_visible);
-          if (currentProfile.settings.extension_shortcuts) setExtensionShortcuts(currentProfile.settings.extension_shortcuts);
-
-      } else if (!isSupabaseConfigured()) {
-          // Fallback Local
-          const savedAgendaLayout = localStorage.getItem(`pastel_agenda_layout_${currentProfile.id}`);
-          if (savedAgendaLayout) setAgendaLayout(JSON.parse(savedAgendaLayout));
-          const savedAgendaVis = localStorage.getItem(`pastel_agenda_vis_${currentProfile.id}`);
-          if (savedAgendaVis === 'true') setShowAgenda(true);
-
-          const savedQuotePos = localStorage.getItem(`pastel_quote_pos_${currentProfile.id}`);
-          if (savedQuotePos) setQuotePos(JSON.parse(savedQuotePos));
-          const savedQuoteVis = localStorage.getItem(`pastel_quote_vis_${currentProfile.id}`);
-          if (savedQuoteVis === 'true') setShowQuote(true);
-
-          const savedExtPos = localStorage.getItem(`pastel_ext_pos_${currentProfile.id}`);
-          if (savedExtPos) setExtensionPos(JSON.parse(savedExtPos));
-          const savedExtVis = localStorage.getItem(`pastel_ext_vis_${currentProfile.id}`);
-          if (savedExtVis === 'true') setShowExtension(true);
-          const savedExtShortcuts = localStorage.getItem(`pastel_ext_shortcuts_${currentProfile.id}`);
-          if (savedExtShortcuts) setExtensionShortcuts(JSON.parse(savedExtShortcuts));
+      // Load Initial Settings from the provided current profile
+      const settings = activeProfile.settings;
+      if (settings) {
+          if (settings.agenda_pos) setAgendaLayout(prev => ({ ...prev, ...settings.agenda_pos }));
+          if (settings.agenda_size) setAgendaLayout(prev => ({ ...prev, ...settings.agenda_size }));
+          if (settings.agenda_visible !== undefined) setShowAgenda(settings.agenda_visible);
+          if (settings.quote_pos) setQuotePos(settings.quote_pos);
+          if (settings.quote_visible !== undefined) setShowQuote(settings.quote_visible);
+          if (settings.extension_pos) setExtensionPos(settings.extension_pos);
+          if (settings.extension_visible !== undefined) setShowExtension(settings.extension_visible);
+          if (settings.extension_shortcuts) setExtensionShortcuts(settings.extension_shortcuts);
       }
 
       if (!isSupabaseConfigured()) {
@@ -535,7 +502,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       }
   }
 
-  // ... (Drag handlers same as before, simplified for brevity) ...
+  // ... (Drag handlers same as before) ...
   const onDragEnd = (event: DragEndEvent) => {
     setActiveColumn(null);
     setActiveTask(null);
@@ -561,7 +528,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       if (active.data.current?.type === 'Task') saveTaskMoves(tasks);
   }
 
-  // Simplified DragOver
   const onDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over) return;
@@ -739,7 +705,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
                     if (isSupabaseConfigured()) {
                          supabase.from('columns').update({ title: t }).eq('id', id).then();
                     } else {
-                         // Force save to local storage
                          const key = `pastel_data_${currentProfile.id}`;
                          const currentData = JSON.parse(localStorage.getItem(key) || '{"columns":[],"tasks":[]}');
                          localStorage.setItem(key, JSON.stringify({ ...currentData, columns: newCols }));
