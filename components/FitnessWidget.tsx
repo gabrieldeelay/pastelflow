@@ -4,7 +4,7 @@ import {
   Activity, X, GripHorizontal, Droplets, Utensils, Dumbbell, 
   Plus, Minus, Info, Trash2, History, ChevronRight, Scale, ArrowRight,
   Waves, Award, CheckCircle2, Zap, RefreshCw, Sparkles, Loader2,
-  Target, User, TrendingDown, TrendingUp, Equal
+  Target, User, TrendingDown, TrendingUp, Equal, AlertCircle
 } from 'lucide-react';
 import { FitnessData, FitnessHistoryEntry } from '../types';
 import { GoogleGenAI } from "@google/genai";
@@ -38,7 +38,7 @@ const FITNESS_GOALS = {
 };
 
 const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosition, onLayoutChange }) => {
-  const [position, setPosition] = useState(initialPosition || { x: 200, y: 200 });
+  const [position, setPosition] = useState(initialPosition || { x: 50, y: 50 });
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<'imc' | 'water' | 'calories' | 'history'>('imc');
   
@@ -51,9 +51,50 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
   const [foodName, setFoodName] = useState('');
   const [foodCals, setFoodCals] = useState('');
   const [isEstimating, setIsEstimating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const widgetRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+
+  // Sync position from props
+  useEffect(() => {
+    if (initialPosition) {
+      setPosition(initialPosition);
+    }
+  }, [initialPosition]);
+
+  // Ensure visibility on mount
+  useEffect(() => {
+    const ensureVisible = () => {
+      if (!widgetRef.current) return;
+      const rect = widgetRef.current.getBoundingClientRect();
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const margin = 20;
+
+      setPosition(prev => {
+        let nextX = prev.x;
+        let nextY = prev.y;
+        let corrected = false;
+        const w = rect.width || 340;
+        const h = rect.height || 400;
+
+        if (nextX + w > winW) { nextX = Math.max(margin, winW - w - margin); corrected = true; }
+        if (nextY + h > winH) { nextY = Math.max(margin, winH - h - margin); corrected = true; }
+        if (nextX < 0) { nextX = margin; corrected = true; }
+        if (nextY < 0) { nextY = margin; corrected = true; }
+
+        if (corrected) {
+          onLayoutChange(nextX, nextY);
+          return { x: nextX, y: nextY };
+        }
+        return prev;
+      });
+    };
+    const timer = setTimeout(ensureVisible, 100);
+    window.addEventListener('resize', ensureVisible);
+    return () => { clearTimeout(timer); window.removeEventListener('resize', ensureVisible); };
+  }, [onLayoutChange]);
 
   useEffect(() => {
     if (data) {
@@ -164,26 +205,37 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
     updateData({ foodLog: [...(data?.foodLog || []), newItem] });
     setFoodName('');
     setFoodCals('');
+    setAiError(null);
   };
 
   const estimateCaloriesWithAI = async () => {
     if (!foodName.trim() || isEstimating) return;
     setIsEstimating(true);
+    setAiError(null);
     try {
+      // Re-initialize for every call to ensure latest API KEY
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Qual a estimativa de calorias para: "${foodName}"? Retorne apenas o número inteiro aproximado.`,
+        contents: `Qual a estimativa de calorias para: "${foodName}"? Se não for um alimento, responda apenas '0'.`,
         config: {
-          systemInstruction: "Você é um assistente de nutrição preciso. Ao receber o nome de um alimento, retorne APENAS o número de calorias estimadas para uma porção média comum. Não responda com texto, apenas o número.",
+          systemInstruction: "Você é um nutricionista digital. Sua tarefa é extrair o valor calórico aproximado de alimentos informados pelo usuário. Se o termo não for um alimento (ex: 'pedra', 'carro', números aleatórios), retorne '0'. Retorne APENAS o número inteiro, sem textos ou explicações.",
           temperature: 0.1,
         }
       });
-      const result = response.text?.trim() || "";
+      const result = response.text?.trim() || "0";
       const calorieMatch = result.match(/\d+/);
-      if (calorieMatch) setFoodCals(calorieMatch[0]);
+      const val = calorieMatch ? parseInt(calorieMatch[0]) : 0;
+      
+      if (val > 0) {
+        setFoodCals(val.toString());
+      } else {
+        setAiError(`Item "${foodName}" não identificado como alimento.`);
+        setFoodCals('');
+      }
     } catch (error) {
       console.error("Erro ao estimar calorias:", error);
+      setAiError("Erro na conexão com IA.");
     } finally {
       setIsEstimating(false);
     }
@@ -395,7 +447,7 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
                    <div className="flex justify-between text-[10px] font-bold text-stone-400">
                       <span>{currentNetCalories} consumidas</span>
                       <span className={caloriesRemaining < 0 ? 'text-red-400' : 'text-green-400'}>
-                        {caloriesRemaining < 0 ? `Excedido: ${Math.abs(caloriesRemaining)}` : `Restam: ${caloriesRemaining}`}
+                        {caloriesRemaining < 0 ? `Restam: ${caloriesRemaining}` : `Excedido: ${Math.abs(caloriesRemaining)}`}
                       </span>
                    </div>
                 </div>
@@ -441,13 +493,16 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
               </div>
               <div className="flex flex-col gap-2">
                 <div className="flex gap-2">
-                  <input placeholder="Item" value={foodName} onChange={e => setFoodName(e.target.value)} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl p-2 text-sm outline-none focus:border-orange-300" />
+                  <input placeholder="Item" value={foodName} onChange={e => { setFoodName(e.target.value); setAiError(null); }} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl p-2 text-sm outline-none focus:border-orange-300" />
                   <div className="relative w-24">
                     <input type="number" placeholder="kcal" value={foodCals} onChange={e => setFoodCals(e.target.value)} className={`w-full bg-stone-50 border border-stone-200 rounded-xl p-2 pr-8 text-sm outline-none focus:border-orange-300 transition-all ${isEstimating ? 'animate-pulse bg-orange-50' : ''}`} />
-                    <button onClick={estimateCaloriesWithAI} disabled={isEstimating || !foodName.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 hover:text-orange-600 disabled:opacity-30 transition-colors"><Loader2 size={14} className={isEstimating ? 'animate-spin' : 'hidden'} /> {!isEstimating && <Sparkles size={14} />}</button>
+                    <button onClick={estimateCaloriesWithAI} disabled={isEstimating || !foodName.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 hover:text-orange-600 disabled:opacity-30 transition-colors">
+                      {isEstimating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    </button>
                   </div>
                   <button onClick={addFood} className="bg-orange-500 text-white p-2 rounded-xl hover:bg-orange-600 transition-all shadow-md active:scale-95"><Plus size={20} /></button>
                 </div>
+                {aiError && <div className="flex items-center gap-1 text-[10px] text-red-500 font-bold mt-1"><AlertCircle size={10} /> {aiError}</div>}
               </div>
             </div>
           </div>

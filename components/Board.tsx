@@ -104,7 +104,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
   // Fitness Widget State
   const [showFitness, setShowFitness] = useState(false);
-  const [fitnessPos, setFitnessPos] = useState({ x: 100, y: 400 });
+  const [fitnessPos, setFitnessPos] = useState({ x: 50, y: 350 });
   const [fitnessData, setFitnessData] = useState<FitnessData | undefined>(undefined);
 
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -404,9 +404,9 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       
       {showQuote && <QuoteWidget onRemove={() => saveQuoteVisibility(false)} initialPosition={{ x: quotePos.x, y: quotePos.y }} onLayoutChange={saveQuoteLayout} />}
 
-      {showExtension && <ExtensionWidget onRemove={() => saveExtensionVisibility(false)} initialPosition={extensionPos} onLayoutChange={saveExtensionLayout} shortcuts={extensionShortcuts} onUpdateShortcuts={saveExtensionShortcuts} />}
+      {showExtension && <ExtensionWidget onRemove={() => saveExtensionVisibility(false)} initialPosition={{ x: extensionPos.x, y: extensionPos.y }} onLayoutChange={saveExtensionLayout} shortcuts={extensionShortcuts} onUpdateShortcuts={saveExtensionShortcuts} />}
 
-      {showFitness && <FitnessWidget data={fitnessData} onUpdate={saveFitnessData} onRemove={() => saveFitnessVisibility(false)} initialPosition={fitnessPos} onLayoutChange={saveFitnessLayout} />}
+      {showFitness && <FitnessWidget data={fitnessData} onUpdate={saveFitnessData} onRemove={() => saveFitnessVisibility(false)} initialPosition={{ x: fitnessPos.x, y: fitnessPos.y }} onLayoutChange={saveFitnessLayout} />}
       
       <AgendaModal isOpen={isAgendaModalOpen} onClose={() => setIsAgendaModalOpen(false)} events={agendaEvents} dayNotes={dayNotes} onAddEvent={addAgendaEvent} onUpdateEvent={updateAgendaEvent} onDeleteEvent={deleteAgendaEvent} onSaveDayNote={saveDayNote} profileId={currentProfile.id} />
 
