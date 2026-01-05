@@ -1,5 +1,4 @@
 
-
 export type Id = string | number;
 
 export type PastelColor = 'pink' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'rose' | 'sky' | 'teal' | 'indigo' | 'slate';
@@ -34,6 +33,32 @@ export interface ExtensionShortcut {
   title: string;
   url: string;
   icon: 'globe' | 'search' | 'mail' | 'code' | 'video' | 'music' | 'image' | 'shopping-cart' | 'message-circle' | 'zap';
+  color?: PastelColor;
+}
+
+export interface FitnessHistoryEntry {
+  date: string; // YYYY-MM-DD
+  water: number;
+  caloriesIn: number;
+  caloriesOut: number;
+  weight: number;
+  bmi: number;
+  targetCalorie?: number;
+}
+
+export interface FitnessData {
+  weight: number;
+  height: number;
+  age?: number;
+  gender?: 'male' | 'female';
+  activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  fitnessGoal?: 'lose' | 'maintain' | 'gain';
+  waterGoal: 'easy' | 'recommended' | 'athlete';
+  waterConsumed: number;
+  workoutMinutes: number;
+  foodLog: { id: string; name: string; calories: number }[];
+  lastUpdate: string; // ISO date
+  history: FitnessHistoryEntry[];
 }
 
 export interface Profile {
@@ -50,6 +75,9 @@ export interface Profile {
     extension_pos?: { x: number; y: number };
     extension_visible?: boolean;
     extension_shortcuts?: ExtensionShortcut[];
+    fitness_pos?: { x: number; y: number };
+    fitness_visible?: boolean;
+    fitness_data?: FitnessData;
   };
 }
 

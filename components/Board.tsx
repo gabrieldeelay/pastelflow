@@ -12,14 +12,15 @@ import {
   rectIntersection,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle, Calendar, Sparkles, Link as LinkIcon } from 'lucide-react';
-import { Column, Task, Id, PastelColor, Profile, AgendaEvent, DayNote, ExtensionShortcut } from '../types';
+import { Plus, LogOut, ChevronDown, List as ListIcon, StickyNote, AlertTriangle, Calendar, Sparkles, Link as LinkIcon, Activity } from 'lucide-react';
+import { Column, Task, Id, PastelColor, Profile, AgendaEvent, DayNote, ExtensionShortcut, FitnessData, FitnessHistoryEntry } from '../types';
 import List from './List';
 import Card from './Card';
 import TaskModal from './TaskModal';
 import AgendaWidget from './AgendaWidget';
 import QuoteWidget from './QuoteWidget';
 import ExtensionWidget from './ExtensionWidget';
+import FitnessWidget from './FitnessWidget';
 import AgendaModal from './AgendaModal';
 import { createPortal } from 'react-dom';
 import { PLACEHOLDER_TEXTS, COLORS } from '../constants';
@@ -101,6 +102,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const [extensionPos, setExtensionPos] = useState({ x: 100, y: 100 });
   const [extensionShortcuts, setExtensionShortcuts] = useState<ExtensionShortcut[]>([]);
 
+  // Fitness Widget State
+  const [showFitness, setShowFitness] = useState(false);
+  const [fitnessPos, setFitnessPos] = useState({ x: 100, y: 400 });
+  const [fitnessData, setFitnessData] = useState<FitnessData | undefined>(undefined);
+
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
@@ -117,14 +123,11 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
 
   const columnsId = useMemo(() => columns.map((col) => col.id), [columns]);
   
-  // Important: Always use the latest version of the profile from the profiles state
   const activeProfile = useMemo(() => {
     return profiles.find(p => String(p.id) === String(currentProfile.id)) || currentProfile;
   }, [profiles, currentProfile]);
 
-  // Helper to update settings both locally and in DB
   const updateProfileSettings = async (newSettings: any) => {
-      // Update local profiles list immediately to keep UI snappy and sources of truth in sync
       setProfiles(prev => prev.map(p => 
         String(p.id) === String(currentProfile.id) 
           ? { ...p, settings: { ...(p.settings || {}), ...newSettings } } 
@@ -132,7 +135,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       ));
 
       if (isSupabaseConfigured()) {
-          // Fetch the current latest settings from the server to merge correctly
           const { data: latestProfile } = await supabase.from('profiles').select('settings').eq('id', currentProfile.id).single();
           const mergedSettings = { ...(latestProfile?.settings || {}), ...newSettings };
           await supabase.from('profiles').update({ settings: mergedSettings }).eq('id', currentProfile.id);
@@ -143,72 +145,56 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   const saveAgendaLayout = async (x: number, y: number, w: number, h: number) => {
       setAgendaLayout({ x, y, w, h });
       updateProfileSettings({ agenda_pos: { x, y }, agenda_size: { w, h } });
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_agenda_layout_${currentProfile.id}`, JSON.stringify({ x, y, w, h }));
-      }
   };
 
   const saveAgendaVisibility = async (visible: boolean) => {
       setShowAgenda(visible);
       updateProfileSettings({ agenda_visible: visible });
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_agenda_vis_${currentProfile.id}`, String(visible));
-      }
   }
 
   const saveQuoteLayout = async (x: number, y: number) => {
       setQuotePos({ x, y });
       updateProfileSettings({ quote_pos: { x, y } });
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_quote_pos_${currentProfile.id}`, JSON.stringify({ x, y }));
-      }
   };
 
   const saveQuoteVisibility = async (visible: boolean) => {
       setShowQuote(visible);
       updateProfileSettings({ quote_visible: visible });
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_quote_vis_${currentProfile.id}`, String(visible));
-      }
   };
 
   const saveExtensionLayout = async (x: number, y: number) => {
       setExtensionPos({ x, y });
       updateProfileSettings({ extension_pos: { x, y } });
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_ext_pos_${currentProfile.id}`, JSON.stringify({ x, y }));
-      }
   };
 
   const saveExtensionVisibility = async (visible: boolean) => {
       setShowExtension(visible);
       updateProfileSettings({ extension_visible: visible });
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_ext_vis_${currentProfile.id}`, String(visible));
-      }
   };
 
   const saveExtensionShortcuts = async (shortcuts: ExtensionShortcut[]) => {
-      // 1. Update Board's local state for immediate re-render
       setExtensionShortcuts(shortcuts);
-      
-      // 2. Persist via profile settings update
       updateProfileSettings({ extension_shortcuts: shortcuts });
-      
-      // 3. Fallback for offline mode
-      if (!isSupabaseConfigured()) {
-          localStorage.setItem(`pastel_ext_shortcuts_${currentProfile.id}`, JSON.stringify(shortcuts));
-      }
+  };
+
+  const saveFitnessLayout = async (x: number, y: number) => {
+      setFitnessPos({ x, y });
+      updateProfileSettings({ fitness_pos: { x, y } });
+  };
+
+  const saveFitnessVisibility = async (visible: boolean) => {
+      setShowFitness(visible);
+      updateProfileSettings({ fitness_visible: visible });
+  };
+
+  const saveFitnessData = async (data: FitnessData) => {
+      setFitnessData(data);
+      updateProfileSettings({ fitness_data: data });
   };
 
   // --- PERSISTENCE HELPERS ---
   const saveColumnOrder = async (newColumns: Column[]) => {
-      if (!isSupabaseConfigured()) {
-          const key = `pastel_data_${currentProfile.id}`;
-          const currentData = JSON.parse(localStorage.getItem(key) || '{"columns":[],"tasks":[]}');
-          localStorage.setItem(key, JSON.stringify({ ...currentData, columns: newColumns }));
-          return;
-      }
+      if (!isSupabaseConfigured()) return;
       const updates = newColumns.map((col, index) => ({
           id: col.id,
           position: index,
@@ -220,12 +206,7 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   };
 
   const saveTaskMoves = async (newTasks: Task[]) => {
-      if (!isSupabaseConfigured()) {
-          const key = `pastel_data_${currentProfile.id}`;
-          const currentData = JSON.parse(localStorage.getItem(key) || '{"columns":[],"tasks":[]}');
-          localStorage.setItem(key, JSON.stringify({ ...currentData, tasks: newTasks }));
-          return;
-      }
+      if (!isSupabaseConfigured()) return;
       const updates = newTasks.map((t, idx) => ({
           id: t.id,
           column_id: t.columnId,
@@ -241,7 +222,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
       setLoading(true);
       setErrorMsg(null);
       
-      // Load Initial Settings from the provided current profile
       const settings = activeProfile.settings;
       if (settings) {
           if (settings.agenda_pos) setAgendaLayout(prev => ({ ...prev, ...settings.agenda_pos }));
@@ -252,35 +232,62 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           if (settings.extension_pos) setExtensionPos(settings.extension_pos);
           if (settings.extension_visible !== undefined) setShowExtension(settings.extension_visible);
           if (settings.extension_shortcuts) setExtensionShortcuts(settings.extension_shortcuts);
+          if (settings.fitness_pos) setFitnessPos(settings.fitness_pos);
+          if (settings.fitness_visible !== undefined) setShowFitness(settings.fitness_visible);
+          
+          if (settings.fitness_data) {
+              const fData = settings.fitness_data as FitnessData;
+              const last = new Date(fData.lastUpdate).toDateString();
+              const now = new Date().toDateString();
+              
+              // Daily reset with ARCHIVING
+              if (last !== now) {
+                  const caloriesIn = fData.foodLog.reduce((acc, curr) => acc + curr.calories, 0);
+                  const caloriesOut = (fData.workoutMinutes || 0) * 8;
+                  const hMeter = fData.height / 100;
+                  const bmi = fData.weight / (hMeter * hMeter);
+
+                  // Calculate last day's target calorie for history
+                  const ACTIVITY_FACTORS = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 };
+                  const GOAL_ADJUSTMENTS = { lose: -500, maintain: 0, gain: 500 };
+                  
+                  let bmr = (10 * fData.weight) + (6.25 * fData.height) - (5 * (fData.age || 25));
+                  bmr = fData.gender === 'female' ? bmr - 161 : bmr + 5;
+                  const tdee = bmr * ACTIVITY_FACTORS[fData.activityLevel || 'moderate'];
+                  const target = Math.round(tdee + GOAL_ADJUSTMENTS[fData.fitnessGoal || 'maintain']);
+
+                  const historyEntry: FitnessHistoryEntry = {
+                      date: new Date(fData.lastUpdate).toISOString().split('T')[0],
+                      water: fData.waterConsumed,
+                      caloriesIn,
+                      caloriesOut,
+                      weight: fData.weight,
+                      bmi: isNaN(bmi) ? 0 : bmi,
+                      targetCalorie: target
+                  };
+
+                  const updatedFitness = { 
+                      ...fData, 
+                      waterConsumed: 0, 
+                      workoutMinutes: 0, 
+                      foodLog: [], 
+                      lastUpdate: new Date().toISOString(),
+                      history: [historyEntry, ...(fData.history || [])].slice(0, 30) // Keep last 30 days
+                  };
+                  setFitnessData(updatedFitness);
+                  updateProfileSettings({ fitness_data: updatedFitness });
+              } else {
+                  setFitnessData(fData);
+              }
+          }
       }
 
       if (!isSupabaseConfigured()) {
-         const key = `pastel_data_${currentProfile.id}`;
-         const saved = localStorage.getItem(key);
-         if (saved) {
-             const data = JSON.parse(saved);
-             setColumns(data.columns || []);
-             setTasks(data.tasks || []);
-             setAgendaEvents(data.agendaEvents || []);
-         } else {
-             const defaultCols: Column[] = [
-                { id: `todo_${currentProfile.id}`, title: 'A Fazer', color: 'blue', position: 0 },
-                { id: `doing_${currentProfile.id}`, title: 'Em Andamento', color: 'yellow', position: 1 },
-                { id: `done_${currentProfile.id}`, title: 'Concluído', color: 'green', position: 2 },
-             ];
-             setColumns(defaultCols);
-             setTasks([]);
-             localStorage.setItem(key, JSON.stringify({ columns: defaultCols, tasks: [] }));
-         }
-         const savedProfiles = localStorage.getItem('mock_profiles');
-         if(savedProfiles) setProfiles(JSON.parse(savedProfiles));
          setLoading(false);
          return;
       }
 
       try {
-        if (!currentProfile?.id) throw new Error("ID do perfil inválido");
-
         const { data: colsData } = await supabase.from('columns').select('*').eq('profile_id', currentProfile.id).order('position', { ascending: true });
         
         let loadedTasks: Task[] = [];
@@ -308,17 +315,6 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
         if (colsData && colsData.length > 0) {
           setColumns(stableSortColumns(colsData.map((c: any) => ({ id: c.id, title: c.title, color: c.color, position: c.position || 0 }))));
           setTasks(loadedTasks);
-        } else {
-           const defaultCols = [
-              { profile_id: currentProfile.id, title: 'A Fazer', position: 0, color: 'blue' },
-              { profile_id: currentProfile.id, title: 'Em Andamento', position: 1, color: 'yellow' },
-              { profile_id: currentProfile.id, title: 'Concluído', position: 2, color: 'green' },
-           ];
-           const { data: newCols } = await supabase.from('columns').insert(defaultCols).select();
-           if (newCols) {
-               setColumns(stableSortColumns(newCols.map((c: any) => ({ id: c.id, title: c.title, color: c.color, position: c.position || 0 }))));
-               setTasks([]);
-           }
         }
       } catch (error: any) {
         console.error("Error loading board:", error);
@@ -330,98 +326,24 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
     fetchData();
   }, [currentProfile.id]);
 
-  // --- REALTIME ---
-  useEffect(() => {
-    if (!isSupabaseConfigured()) return;
-    const channel = supabase.channel(`board_sync_${currentProfile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'columns' }, (payload) => {
-          if (payload.eventType === 'INSERT' && String(payload.new.profile_id) === String(currentProfile.id)) {
-             setColumns(prev => [...prev, payload.new as any]);
-          }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
-          if (payload.eventType === 'INSERT') {
-              const newData = payload.new as any;
-              setColumns(currentCols => {
-                  if (currentCols.some(c => String(c.id) === String(newData.column_id))) {
-                      setTasks(prev => {
-                          if (prev.some(t => String(t.id) === String(newData.id))) return prev;
-                          return [...prev, { id: newData.id, columnId: newData.column_id, color: newData.color || 'yellow', ...unpackTaskFromDB(newData) } as Task];
-                      });
-                  }
-                  return currentCols;
-              });
-          } else if (payload.eventType === 'UPDATE') {
-              setTasks(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, columnId: payload.new.column_id, color: payload.new.color, ...unpackTaskFromDB(payload.new) } : t));
-          } else if (payload.eventType === 'DELETE') {
-              setTasks(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
-          }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agenda_events' }, (payload) => {
-          if (payload.eventType === 'INSERT' && payload.new.profile_id === currentProfile.id) {
-             setAgendaEvents(prev => [...prev, payload.new as AgendaEvent]);
-          } else if (payload.eventType === 'UPDATE') {
-             setAgendaEvents(prev => prev.map(e => e.id === payload.new.id ? payload.new as AgendaEvent : e));
-          } else if (payload.eventType === 'DELETE') {
-             setAgendaEvents(prev => prev.filter(e => e.id !== payload.old.id));
-          }
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentProfile.id]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-        if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
-            setShowAddMenu(false);
-        }
-    }
-    if (showAddMenu) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showAddMenu]);
-
-  // --- AGENDA HANDLERS ---
-  const toggleAgenda = () => {
-      setShowAddMenu(false);
-      saveAgendaVisibility(!showAgenda);
-  };
-  
-  const toggleQuote = () => {
-      setShowAddMenu(false);
-      saveQuoteVisibility(!showQuote);
-  };
-
-  const toggleExtension = () => {
-      setShowAddMenu(false);
-      saveExtensionVisibility(!showExtension);
-  }
+  // --- ACTIONS ---
+  const toggleAgenda = () => { setShowAddMenu(false); saveAgendaVisibility(!showAgenda); };
+  const toggleQuote = () => { setShowAddMenu(false); saveQuoteVisibility(!showQuote); };
+  const toggleExtension = () => { setShowAddMenu(false); saveExtensionVisibility(!showExtension); };
+  const toggleFitness = () => { setShowAddMenu(false); saveFitnessVisibility(!showFitness); };
 
   const addAgendaEvent = async (evt: Partial<AgendaEvent>) => {
       const newEvt = { ...evt, id: crypto.randomUUID(), profile_id: currentProfile.id } as AgendaEvent;
-      
-      // Optimistic
       setAgendaEvents(prev => [...prev, newEvt]);
       addToHistory({ type: 'EVENT_CREATE', data: newEvt });
-
-      if (isSupabaseConfigured()) {
-          const { error } = await supabase.from('agenda_events').insert({ profile_id: currentProfile.id, ...evt });
-          if(error) console.error(error);
-      } else {
-          // Local save logic...
-      }
+      if (isSupabaseConfigured()) await supabase.from('agenda_events').insert({ profile_id: currentProfile.id, ...evt });
   };
 
   const updateAgendaEvent = async (evt: AgendaEvent) => {
       const prev = agendaEvents.find(e => e.id === evt.id);
       if(prev) addToHistory({ type: 'EVENT_UPDATE', prev, current: evt });
-
       setAgendaEvents(prev => prev.map(e => e.id === evt.id ? evt : e));
-      if (isSupabaseConfigured()) {
-          await supabase.from('agenda_events').update({
-              title: evt.title, description: evt.description, start_time: evt.start_time,
-              category: evt.category, is_completed: evt.is_completed, priority: evt.priority
-          }).eq('id', evt.id);
-      }
+      if (isSupabaseConfigured()) await supabase.from('agenda_events').update({ ...evt }).eq('id', evt.id);
   };
 
   const deleteAgendaEvent = async (id: string) => {
@@ -434,125 +356,35 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
   };
 
   const saveDayNote = async (date: string, content: string) => {
-      // Optimistic
       const existing = dayNotes.find(n => n.date === date);
       const newNote = { id: existing?.id || crypto.randomUUID(), profile_id: currentProfile.id, date, content };
-      
-      setDayNotes(prev => {
-          if (existing) return prev.map(n => n.id === existing.id ? newNote : n);
-          return [...prev, newNote];
-      });
-
-      if (isSupabaseConfigured()) {
-          await supabase.from('day_notes').upsert({
-              profile_id: currentProfile.id,
-              date: date,
-              content: content
-          }, { onConflict: 'profile_id,date' });
-      }
+      setDayNotes(prev => existing ? prev.map(n => n.id === existing.id ? newNote : n) : [...prev, newNote]);
+      if (isSupabaseConfigured()) await supabase.from('day_notes').upsert({ profile_id: currentProfile.id, date, content }, { onConflict: 'profile_id,date' });
   };
 
-  // --- TASK HANDLERS (With Undo) ---
   const createTask = async (columnId: Id) => {
     setShowAddMenu(false);
     const tempId = crypto.randomUUID();
-    const newTask: Task = {
-      id: tempId, columnId, content: PLACEHOLDER_TEXTS[Math.floor(Math.random() * PLACEHOLDER_TEXTS.length)],
-      color: 'yellow', description: '', attachments: [], isChecklist: false
-    };
-    
+    const newTask: Task = { id: tempId, columnId, content: PLACEHOLDER_TEXTS[Math.floor(Math.random() * PLACEHOLDER_TEXTS.length)], color: 'yellow', description: '', attachments: [], isChecklist: false };
     setTasks(prev => [...prev, newTask]);
     addToHistory({ type: 'TASK_CREATE', data: newTask });
-
-    if (isSupabaseConfigured()) {
-        await supabase.from('tasks').insert({
-            id: tempId, column_id: columnId, content: packTaskForDB(newTask), color: newTask.color, position: tasks.length
-        });
-    } else {
-        saveTaskMoves([...tasks, newTask]);
-    }
+    if (isSupabaseConfigured()) await supabase.from('tasks').insert({ id: tempId, column_id: columnId, content: packTaskForDB(newTask), color: newTask.color, position: tasks.length });
   };
 
   const deleteTask = async (id: Id) => {
     const taskToDelete = tasks.find(t => String(t.id) === String(id));
     if(!taskToDelete) return;
-
     addToHistory({ type: 'TASK_DELETE', data: taskToDelete });
     const updatedTasks = tasks.filter((t) => String(t.id) !== String(id));
     setTasks(updatedTasks);
-    if (selectedTask && String(selectedTask.id) === String(id)) setIsModalOpen(false); 
-
     if(isSupabaseConfigured()) await supabase.from('tasks').delete().eq('id', id);
-    else saveTaskMoves(updatedTasks);
   };
 
   const updateTaskFull = async (updatedTask: Task) => {
       const prev = tasks.find(t => t.id === updatedTask.id);
       if(prev) addToHistory({ type: 'TASK_UPDATE', prev, current: updatedTask });
-
       setTasks(prev => prev.map((t) => (String(t.id) === String(updatedTask.id) ? updatedTask : t)));
-      
-      if (isSupabaseConfigured()) {
-             const packedContent = packTaskForDB(updatedTask);
-             await supabase.from('tasks').update({
-                content: packedContent, color: updatedTask.color, column_id: updatedTask.columnId
-             }).eq('id', updatedTask.id);
-      } else {
-         saveTaskMoves(tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
-      }
-  }
-
-  // ... (Drag handlers same as before) ...
-  const onDragEnd = (event: DragEndEvent) => {
-    setActiveColumn(null);
-    setActiveTask(null);
-    const { active, over } = event;
-    if (!over) return;
-    if (active.id === over.id) return;
-
-    if (active.data.current?.type === 'Column') {
-      setColumns((columns) => {
-        const activeIndex = columns.findIndex((col) => String(col.id) === String(active.id));
-        const overIndex = columns.findIndex((col) => String(col.id) === String(over.id));
-        const newCols = arrayMove(columns, activeIndex, overIndex).map((c, i) => ({ ...c, position: i }));
-        saveColumnOrder(newCols);
-        return newCols;
-      });
-    }
-  };
-
-  const handleDragEndFull = (event: DragEndEvent) => {
-      onDragEnd(event); 
-      const { active, over } = event;
-      if (!over) return;
-      if (active.data.current?.type === 'Task') saveTaskMoves(tasks);
-  }
-
-  const onDragOver = (event: DragOverEvent) => {
-    const { active, over } = event;
-    if (!over) return;
-    if (active.id === over.id) return;
-    if (active.data.current?.type !== 'Task') return;
-
-    const isActiveTask = active.data.current?.type === 'Task';
-    const isOverTask = over.data.current?.type === 'Task';
-    
-    if (isActiveTask && isOverTask) {
-      setTasks((tasks) => {
-        const activeIndex = tasks.findIndex((t) => String(t.id) === String(active.id));
-        const overIndex = tasks.findIndex((t) => String(t.id) === String(over.id));
-        if (tasks[activeIndex].columnId !== tasks[overIndex].columnId) tasks[activeIndex].columnId = tasks[overIndex].columnId;
-        return arrayMove(tasks, activeIndex, overIndex);
-      });
-    }
-    const isOverColumn = over.data.current?.type === 'Column';
-    if (isActiveTask && isOverColumn) {
-      setTasks((tasks) => {
-        const activeIndex = tasks.findIndex((t) => String(t.id) === String(active.id));
-        tasks[activeIndex].columnId = over.id;
-        return arrayMove(tasks, activeIndex, activeIndex);
-      });
-    }
+      if (isSupabaseConfigured()) await supabase.from('tasks').update({ content: packTaskForDB(updatedTask), color: updatedTask.color, column_id: updatedTask.columnId }).eq('id', updatedTask.id);
   };
 
   return (
@@ -570,190 +402,59 @@ const Board: React.FC<Props> = ({ currentProfile, onSwitchProfile }) => {
           />
       )}
       
-      {showQuote && (
-          <QuoteWidget
-             onRemove={() => saveQuoteVisibility(false)}
-             initialPosition={{ x: quotePos.x, y: quotePos.y }}
-             onLayoutChange={saveQuoteLayout}
-          />
-      )}
+      {showQuote && <QuoteWidget onRemove={() => saveQuoteVisibility(false)} initialPosition={{ x: quotePos.x, y: quotePos.y }} onLayoutChange={saveQuoteLayout} />}
 
-      {showExtension && (
-          <ExtensionWidget 
-            onRemove={() => saveExtensionVisibility(false)}
-            initialPosition={extensionPos}
-            onLayoutChange={saveExtensionLayout}
-            shortcuts={extensionShortcuts}
-            onUpdateShortcuts={saveExtensionShortcuts}
-          />
-      )}
+      {showExtension && <ExtensionWidget onRemove={() => saveExtensionVisibility(false)} initialPosition={extensionPos} onLayoutChange={saveExtensionLayout} shortcuts={extensionShortcuts} onUpdateShortcuts={saveExtensionShortcuts} />}
+
+      {showFitness && <FitnessWidget data={fitnessData} onUpdate={saveFitnessData} onRemove={() => saveFitnessVisibility(false)} initialPosition={fitnessPos} onLayoutChange={saveFitnessLayout} />}
       
-      <AgendaModal
-        isOpen={isAgendaModalOpen}
-        onClose={() => setIsAgendaModalOpen(false)}
-        events={agendaEvents}
-        dayNotes={dayNotes}
-        onAddEvent={addAgendaEvent}
-        onUpdateEvent={updateAgendaEvent}
-        onDeleteEvent={deleteAgendaEvent}
-        onSaveDayNote={saveDayNote}
-        profileId={currentProfile.id}
-      />
+      <AgendaModal isOpen={isAgendaModalOpen} onClose={() => setIsAgendaModalOpen(false)} events={agendaEvents} dayNotes={dayNotes} onAddEvent={addAgendaEvent} onUpdateEvent={updateAgendaEvent} onDeleteEvent={deleteAgendaEvent} onSaveDayNote={saveDayNote} profileId={currentProfile.id} />
 
-      {selectedTask && (
-        <TaskModal 
-            task={selectedTask}
-            isOpen={isModalOpen}
-            onClose={() => setIsModalOpen(false)}
-            onUpdate={updateTaskFull}
-            onDelete={deleteTask}
-            profiles={profiles}
-            currentProfileId={currentProfile.id}
-        />
-      )}
+      {selectedTask && <TaskModal task={selectedTask} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onUpdate={updateTaskFull} onDelete={deleteTask} profiles={profiles} currentProfileId={currentProfile.id} />}
 
-      {/* HEADER */}
       <header className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center w-full mb-4">
         <div className="flex items-center gap-4">
           <div className="group relative">
             <img src={activeProfile.avatar} className="w-12 h-12 rounded-full border-2 border-white shadow-md cursor-pointer" alt="Avatar" />
           </div>
-          <div>
-            <h1 className="text-4xl font-black text-stone-700 tracking-tight leading-none">
-              Pastel<span className="text-red-300">Flow</span>.
-            </h1>
-          </div>
-          <button onClick={onSwitchProfile} className="ml-2 p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-200/50 rounded-full transition-colors" title="Trocar Perfil">
-            <LogOut size={20} />
-          </button>
+          <div><h1 className="text-4xl font-black text-stone-700 tracking-tight leading-none">Pastel<span className="text-red-300">Flow</span>.</h1></div>
+          <button onClick={onSwitchProfile} className="ml-2 p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-200/50 rounded-full transition-colors" title="Trocar Perfil"><LogOut size={20} /></button>
         </div>
         
         <div className="relative" ref={addMenuRef}>
-            <button
-            onClick={() => setShowAddMenu(!showAddMenu)}
-            className="flex items-center gap-2 bg-stone-800 hover:bg-stone-700 text-white px-6 py-3 rounded-xl shadow-lg shadow-stone-200 transition-all transform active:scale-95 font-bold"
-            >
-            <Plus size={20} />
-            Adicionar
-            <ChevronDown size={16} className={`transition-transform ${showAddMenu ? 'rotate-180' : ''}`} />
-            </button>
-            
+            <button onClick={() => setShowAddMenu(!showAddMenu)} className="flex items-center gap-2 bg-stone-800 hover:bg-stone-700 text-white px-6 py-3 rounded-xl shadow-lg shadow-stone-200 transition-all transform active:scale-95 font-bold"><Plus size={20} />Adicionar<ChevronDown size={16} className={`transition-transform ${showAddMenu ? 'rotate-180' : ''}`} /></button>
             {showAddMenu && (
                 <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-                    <button onClick={async () => {
-                         const tempId = crypto.randomUUID();
-                         setColumns(prev => [...prev, { id: tempId, title: 'Nova Lista', color: 'blue', position: columns.length }]);
-                         if(isSupabaseConfigured()) await supabase.from('columns').insert({ id: tempId, profile_id: currentProfile.id, title: 'Nova Lista', position: columns.length, color: 'blue' });
-                         setShowAddMenu(false);
-                    }} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
-                        <div className="bg-blue-100 p-1 rounded text-blue-600"><ListIcon size={18} /></div>
-                        Nova Lista
-                    </button>
-                    <button onClick={() => { if(columns.length>0) createTask(columns[0].id); }} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
-                        <div className="bg-yellow-100 p-1 rounded text-yellow-600"><StickyNote size={18} /></div>
-                        Nova Nota
-                    </button>
-                    
+                    <button onClick={async () => { const tempId = crypto.randomUUID(); setColumns(prev => [...prev, { id: tempId, title: 'Nova Lista', color: 'blue', position: columns.length }]); if(isSupabaseConfigured()) await supabase.from('columns').insert({ id: tempId, profile_id: currentProfile.id, title: 'Nova Lista', position: columns.length, color: 'blue' }); setShowAddMenu(false); }} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"><div className="bg-blue-100 p-1 rounded text-blue-600"><ListIcon size={18} /></div>Nova Lista</button>
+                    <button onClick={() => { if(columns.length>0) createTask(columns[0].id); }} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"><div className="bg-yellow-100 p-1 rounded text-yellow-600"><StickyNote size={18} /></div>Nova Nota</button>
                     <div className="h-px bg-stone-100 my-1 mx-2"></div>
                     <p className="px-3 py-1 text-[10px] font-bold text-stone-400 uppercase tracking-widest">Widgets</p>
-
-                    <button onClick={toggleAgenda} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
-                        <div className="bg-red-100 p-1 rounded text-red-600"><Calendar size={18} /></div>
-                        {showAgenda ? 'Ocultar Agenda' : 'Agenda'}
-                    </button>
-                    <button onClick={toggleQuote} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
-                        <div className="bg-purple-100 p-1 rounded text-purple-600"><Sparkles size={18} /></div>
-                        {showQuote ? 'Ocultar Frase' : 'Frase do Dia'}
-                    </button>
-                    <button onClick={toggleExtension} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold">
-                        <div className="bg-sky-100 p-1 rounded text-sky-600"><LinkIcon size={18} /></div>
-                        {showExtension ? 'Ocultar Extensão' : 'Extensão'}
-                    </button>
+                    <button onClick={toggleAgenda} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"><div className="bg-red-100 p-1 rounded text-red-600"><Calendar size={18} /></div>{showAgenda ? 'Ocultar Agenda' : 'Agenda'}</button>
+                    <button onClick={toggleQuote} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"><div className="bg-purple-100 p-1 rounded text-purple-600"><Sparkles size={18} /></div>{showQuote ? 'Ocultar Frase' : 'Frase do Dia'}</button>
+                    <button onClick={toggleExtension} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"><div className="bg-sky-100 p-1 rounded text-sky-600"><LinkIcon size={18} /></div>{showExtension ? 'Ocultar Extensão' : 'Extensão'}</button>
+                    <button onClick={toggleFitness} className="w-full flex items-center gap-3 p-3 hover:bg-stone-50 rounded-lg text-left text-stone-700 font-bold"><div className="bg-teal-100 p-1 rounded text-teal-600"><Activity size={18} /></div>{showFitness ? 'Ocultar Fitness' : 'Saúde & Fitness'}</button>
                 </div>
             )}
         </div>
       </header>
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={(e) => {
-             if(e.active.data.current?.type === 'Column') setActiveColumn(e.active.data.current.column);
-             if(e.active.data.current?.type === 'Task') setActiveTask(e.active.data.current.task);
-        }}
-        onDragEnd={handleDragEndFull}
-        onDragOver={onDragOver}
-        collisionDetection={rectIntersection}
-      >
+      <DndContext sensors={sensors} collisionDetection={rectIntersection} onDragEnd={(e) => { 
+        const { active, over } = e; if (!over) return; if (active.id === over.id) return;
+        if (active.data.current?.type === 'Column') setColumns((columns) => { const ai = columns.findIndex((col) => col.id === active.id); const oi = columns.findIndex((col) => col.id === over.id); const newCols = arrayMove(columns, ai, oi).map((c, i) => ({ ...c, position: i })); saveColumnOrder(newCols); return newCols; });
+        if (active.data.current?.type === 'Task') saveTaskMoves(tasks);
+      }} onDragOver={(e) => {
+        const { active, over } = e; if (!over) return; if (active.id === over.id) return; if (active.data.current?.type !== 'Task') return;
+        if (over.data.current?.type === 'Task') setTasks((tasks) => { const ai = tasks.findIndex((t) => t.id === active.id); const oi = tasks.findIndex((t) => t.id === over.id); if (tasks[ai].columnId !== tasks[oi].columnId) tasks[ai].columnId = tasks[oi].columnId; return arrayMove(tasks, ai, oi); });
+        if (over.data.current?.type === 'Column') setTasks((tasks) => { const ai = tasks.findIndex((t) => t.id === active.id); tasks[ai].columnId = over.id; return arrayMove(tasks, ai, ai); });
+      }}>
         <div className="flex flex-wrap items-start gap-8 w-full pb-20">
           <SortableContext items={columnsId} strategy={rectSortingStrategy}>
             {columns.map((col) => (
-              <List
-                key={col.id}
-                column={col}
-                tasks={tasks.filter((task) => String(task.columnId) === String(col.id))}
-                createTask={createTask}
-                deleteColumn={async (id) => {
-                    const deleted = columns.find(c => c.id === id);
-                    if(deleted) {
-                        setColumns(prev => prev.filter(c => c.id !== id));
-                        if(isSupabaseConfigured()) await supabase.from('columns').delete().eq('id', id);
-                    }
-                }}
-                updateColumnTitle={(id, t) => {
-                    const newCols = columns.map(c => c.id === id ? {...c, title: t} : c);
-                    setColumns(newCols);
-                    if (isSupabaseConfigured()) {
-                         supabase.from('columns').update({ title: t }).eq('id', id).then();
-                    } else {
-                         const key = `pastel_data_${currentProfile.id}`;
-                         const currentData = JSON.parse(localStorage.getItem(key) || '{"columns":[],"tasks":[]}');
-                         localStorage.setItem(key, JSON.stringify({ ...currentData, columns: newCols }));
-                    }
-                }}
-                updateColumnColor={(id, c) => {
-                    setColumns(prev => prev.map(col => col.id === id ? {...col, color: c} : col));
-                    supabase.from('columns').update({ color: c }).eq('id', id);
-                }}
-                deleteTask={deleteTask}
-                updateTaskColor={(id, color) => {
-                     const t = tasks.find(t => String(t.id) === String(id));
-                     if(t) updateTaskFull({...t, color});
-                }}
-                updateTaskContent={(id, content) => {
-                     const t = tasks.find(t => String(t.id) === String(id));
-                     if(t) updateTaskFull({...t, content});
-                }}
-                onTaskClick={(t) => { setSelectedTask(t); setIsModalOpen(true); }}
-              />
+              <List key={col.id} column={col} tasks={tasks.filter((task) => String(task.columnId) === String(col.id))} createTask={createTask} deleteColumn={async (id) => { setColumns(prev => prev.filter(c => c.id !== id)); if(isSupabaseConfigured()) await supabase.from('columns').delete().eq('id', id); }} updateColumnTitle={(id, t) => { const newCols = columns.map(c => c.id === id ? {...c, title: t} : c); setColumns(newCols); if (isSupabaseConfigured()) supabase.from('columns').update({ title: t }).eq('id', id).then(); }} updateColumnColor={(id, c) => { setColumns(prev => prev.map(col => col.id === id ? {...col, color: c} : col)); if(isSupabaseConfigured()) supabase.from('columns').update({ color: c }).eq('id', id); }} deleteTask={deleteTask} updateTaskColor={(id, color) => { const t = tasks.find(t => t.id === id); if(t) updateTaskFull({...t, color}); }} updateTaskContent={(id, content) => { const t = tasks.find(t => t.id === id); if(t) updateTaskFull({...t, content}); }} onTaskClick={(t) => { setSelectedTask(t); setIsModalOpen(true); }} />
             ))}
           </SortableContext>
         </div>
-
-        {createPortal(
-          <DragOverlay>
-            {activeColumn && (
-              <List
-                column={activeColumn}
-                tasks={tasks.filter((task) => String(task.columnId) === String(activeColumn.id))}
-                createTask={() => {}}
-                deleteColumn={() => {}}
-                updateColumnTitle={() => {}}
-                updateColumnColor={() => {}}
-                deleteTask={() => {}}
-                updateTaskColor={() => {}}
-                updateTaskContent={() => {}}
-                onTaskClick={() => {}}
-              />
-            )}
-            {activeTask && (
-              <Card
-                task={activeTask}
-                onClick={() => {}}
-              />
-            )}
-          </DragOverlay>,
-          document.body
-        )}
+        {createPortal(<DragOverlay>{activeColumn && <List column={activeColumn} tasks={tasks.filter((task) => task.columnId === activeColumn.id)} createTask={() => {}} deleteColumn={() => {}} updateColumnTitle={() => {}} updateColumnColor={() => {}} deleteTask={() => {}} updateTaskColor={() => {}} updateTaskContent={() => {}} onTaskClick={() => {}} />}{activeTask && <Card task={activeTask} onClick={() => {}} />}</DragOverlay>, document.body)}
       </DndContext>
     </div>
   );
