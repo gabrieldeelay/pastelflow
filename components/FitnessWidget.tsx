@@ -42,7 +42,6 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<'imc' | 'water' | 'calories' | 'history'>('imc');
   
-  // Local Form State
   const [weight, setWeight] = useState(data?.weight || 0);
   const [height, setHeight] = useState(data?.height || 0);
   const [age, setAge] = useState(data?.age || 25);
@@ -56,40 +55,44 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
   const widgetRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
+  // Sincroniza posição inicial vinda do perfil
   useEffect(() => {
-    if (initialPosition) setPosition(initialPosition);
+    if (initialPosition) {
+      setPosition(initialPosition);
+    }
   }, [initialPosition]);
 
+  // Garante que o widget inicie dentro da área visível
   useEffect(() => {
-    const ensureVisible = () => {
+    const rescueWidget = () => {
       if (!widgetRef.current) return;
       const rect = widgetRef.current.getBoundingClientRect();
       const winW = window.innerWidth;
       const winH = window.innerHeight;
-      const margin = 20;
+      const margin = 30;
 
       setPosition(prev => {
-        let nextX = prev.x;
-        let nextY = prev.y;
-        let corrected = false;
-        const w = rect.width || 340;
-        const h = rect.height || 400;
+        let nx = prev.x;
+        let ny = prev.y;
+        let changed = false;
+        const w = 340; // Largura fixa
+        const h = rect.height || 500;
 
-        if (nextX + w > winW) { nextX = Math.max(margin, winW - w - margin); corrected = true; }
-        if (nextY + h > winH) { nextY = Math.max(margin, winH - h - margin); corrected = true; }
-        if (nextX < 0) { nextX = margin; corrected = true; }
-        if (nextY < 0) { nextY = margin; corrected = true; }
+        if (nx + w > winW) { nx = winW - w - margin; changed = true; }
+        if (ny + h > winH) { ny = winH - h - margin; changed = true; }
+        if (nx < margin) { nx = margin; changed = true; }
+        if (ny < margin) { ny = margin; changed = true; }
 
-        if (corrected) {
-          onLayoutChange(nextX, nextY);
-          return { x: nextX, y: nextY };
+        if (changed) {
+          onLayoutChange(nx, ny);
+          return { x: nx, y: ny };
         }
         return prev;
       });
     };
-    const timer = setTimeout(ensureVisible, 150);
-    window.addEventListener('resize', ensureVisible);
-    return () => { clearTimeout(timer); window.removeEventListener('resize', ensureVisible); };
+    const timer = setTimeout(rescueWidget, 200);
+    window.addEventListener('resize', rescueWidget);
+    return () => { clearTimeout(timer); window.removeEventListener('resize', rescueWidget); };
   }, [onLayoutChange]);
 
   useEffect(() => {
@@ -102,7 +105,7 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
   }, [data?.weight, data?.height, data?.age, data?.gender]);
 
   const imcData = useMemo(() => {
-    if (!weight || !height) return { bmi: 0, status: '', diff: 0 };
+    if (!weight || !height) return { bmi: 0, status: '' };
     const hMeter = height / 100;
     const bmiVal = weight / (hMeter * hMeter);
     let status = bmiVal < 18.5 ? 'Abaixo do peso' : bmiVal > 24.9 ? 'Acima do peso' : 'Peso ideal';
@@ -136,8 +139,8 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
       if (isDragging) {
         const rawX = e.clientX - dragOffset.current.x;
         const rawY = e.clientY - dragOffset.current.y;
-        const widgetWidth = widgetRef.current?.offsetWidth || 340;
-        const widgetHeight = widgetRef.current?.offsetHeight || 400;
+        const widgetWidth = 340;
+        const widgetHeight = widgetRef.current?.offsetHeight || 500;
         const maxX = window.innerWidth - widgetWidth;
         const maxY = window.innerHeight - widgetHeight;
         setPosition({ x: Math.max(0, Math.min(rawX, maxX)), y: Math.max(0, Math.min(rawY, maxY)) });
@@ -185,49 +188,37 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
     setIsEstimating(true);
     setAiError(null);
 
-    // Verificação de segurança para o ambiente de execução
-    const apiKey = typeof process !== 'undefined' ? process.env?.API_KEY : null;
-    
-    if (!apiKey) {
-      console.error("ERRO: API_KEY não encontrada no ambiente (process.env.API_KEY).");
-      setAiError("Chave de IA não configurada.");
-      setIsEstimating(false);
-      return;
-    }
-
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      // Uso direto da API KEY do ambiente conforme instruções
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Analise o termo: "${input}". Se for um alimento, responda APENAS o número médio de calorias para uma porção padrão. Se NÃO for um alimento (ex: objetos, nomes, números sem contexto, termos aleatórios como 'pedra'), responda apenas o dígito '0'.`,
+        contents: `Analise: "${input}". É um alimento? Se sim, retorne apenas o número médio de calorias. Se não for alimento (objetos, nomes, números aleatórios, termos sem sentido), retorne '0'.`,
         config: {
-          systemInstruction: "Você é um classificador nutricional ultra-objetivo. Você deve retornar EXCLUSIVAMENTE um número inteiro. Nunca responda com texto ou explicações. Sua prioridade é identificar se a entrada é um alimento real. Caso contrário, retorne 0.",
+          systemInstruction: "Retorne EXCLUSIVAMENTE um número inteiro. Se o termo não for um alimento comestível claro, retorne 0. Nunca explique o motivo.",
           temperature: 0.1,
         }
       });
 
       const result = response.text?.trim() || "0";
-      const calorieMatch = result.match(/\d+/);
-      const val = calorieMatch ? parseInt(calorieMatch[0]) : 0;
+      const val = parseInt(result.replace(/\D/g, '')) || 0;
       
       if (val > 0) {
         setFoodCals(val.toString());
       } else {
-        setAiError(`"${input}" não é um alimento válido.`);
+        setAiError(`"${input}" não identificado como alimento.`);
         setFoodCals('');
       }
     } catch (error: any) {
-      console.error("Erro detalhado na conexão com Gemini API:", error);
-      setAiError("Falha na conexão com o serviço de IA.");
+      console.error("Erro na Gemini API:", error);
+      setAiError("IA indisponível no momento.");
     } finally {
       setIsEstimating(false);
     }
   };
 
-  const waterGoalKey = data?.waterGoal || 'recommended';
-  const waterMeta = WATER_GOALS[waterGoalKey];
+  const waterMeta = WATER_GOALS[data?.waterGoal || 'recommended'];
   const waterPercent = Math.min(100, Math.round(((data?.waterConsumed || 0) / waterMeta.amount) * 100));
-  const isWaterGoalReached = (data?.waterConsumed || 0) >= waterMeta.amount;
 
   return (
     <div 
@@ -276,88 +267,56 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
                   <div><label className="text-[9px] font-black text-stone-400 uppercase mb-1 block">Altura (cm)</label><input type="number" value={height || ''} onChange={e => setHeight(parseFloat(e.target.value))} onBlur={() => updateData({ height })} className="w-full bg-white border border-stone-200 rounded-xl p-1.5 px-3 text-xs outline-none focus:border-stone-400" /></div>
                </div>
             </div>
-
-            <div>
-              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 block">Atividade</label>
-              <div className="grid grid-cols-3 gap-2">
-                 {Object.entries(ACTIVITY_LEVELS).map(([key, info]) => (
-                   <button key={key} onClick={() => updateData({ activityLevel: key as any })} className={`p-2 rounded-xl border text-[9px] font-bold uppercase transition-all ${data?.activityLevel === key ? 'bg-teal-500 text-white border-teal-600 shadow-sm' : 'bg-white text-stone-400 border-stone-100 hover:bg-stone-50'}`}>
-                     {info.label}
-                   </button>
-                 ))}
-              </div>
-            </div>
-
             {imcData.bmi > 0 && (
               <div className="bg-teal-50 rounded-2xl p-4 flex justify-between items-center border border-teal-100">
-                <div className="flex flex-col"><span className="text-2xl font-black text-teal-700">{imcData.bmi.toFixed(1)}</span><span className="text-[9px] font-bold text-teal-600 uppercase tracking-widest">IMC Atual</span></div>
-                <div className="text-right"><p className="text-xs font-bold text-stone-700">{imcData.status}</p><p className="text-[10px] text-stone-500">Meta: {calorieBudget} kcal/dia</p></div>
+                <div className="flex flex-col"><span className="text-2xl font-black text-teal-700">{imcData.bmi.toFixed(1)}</span><span className="text-[9px] font-bold text-teal-600 uppercase tracking-widest">IMC</span></div>
+                <div className="text-right text-xs font-bold text-stone-700">{imcData.status}</div>
               </div>
             )}
           </div>
         )}
 
         {activeTab === 'water' && (
-          <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
-            <div className="flex items-center justify-center py-4 relative">
-              <div className={`relative w-32 h-44 rounded-3xl border-4 ${waterMeta.border} overflow-hidden bg-stone-50 shadow-inner flex flex-col justify-end transition-colors duration-500`}>
-                <div className={`absolute bottom-0 w-full transition-all duration-1000 ease-out flex flex-col justify-center items-center ${waterMeta.bg}`} style={{ height: `${waterPercent}%` }}>
-                    {waterPercent > 15 && <span className="text-white font-black text-xl drop-shadow-md">{waterPercent}%</span>}
-                </div>
-                {!isWaterGoalReached && <Waves size={48} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-stone-200 opacity-30" />}
-              </div>
-              <div className="mt-6 flex flex-col items-center gap-1">
-                 <p className={`text-xl font-black ${waterMeta.color}`}>{(data?.waterConsumed || 0) / 1000}L <span className="text-xs text-stone-400">/ {waterMeta.amount / 1000}L</span></p>
-                 {isWaterGoalReached ? <div className="flex items-center gap-1 text-green-500 font-black text-[10px] uppercase tracking-widest animate-pulse"><CheckCircle2 size={12} /><span>Meta Concluída!</span></div> : <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Ainda faltam {(waterMeta.amount - (data?.waterConsumed || 0)) / 1000}L</p>}
-              </div>
-              <div className="flex gap-4 mt-6">
-                <button onClick={() => updateData({ waterConsumed: Math.max(0, (data?.waterConsumed || 0) - 250) })} className="bg-white border border-stone-200 p-3 rounded-2xl hover:bg-red-50 text-red-400 shadow-sm transition-all active:scale-90"><Minus size={20} /></button>
-                <button onClick={() => updateData({ waterConsumed: (data?.waterConsumed || 0) + 250 })} className={`${waterMeta.bg} border p-3 rounded-2xl hover:brightness-110 text-white shadow-lg transition-all active:scale-90 flex items-center gap-2 px-6`}><Plus size={20} /><span className="font-bold text-xs uppercase">+250ml</span></button>
-              </div>
+          <div className="flex flex-col items-center gap-6 py-4 animate-in fade-in slide-in-from-right-4">
+            <div className={`relative w-32 h-44 rounded-3xl border-4 ${waterMeta.border} overflow-hidden bg-stone-50 shadow-inner flex flex-col justify-end`}>
+                <div className={`absolute bottom-0 w-full transition-all duration-1000 ease-out bg-blue-500`} style={{ height: `${waterPercent}%` }} />
+                <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl font-black text-stone-700 mix-blend-overlay">{waterPercent}%</span>
+            </div>
+            <div className="flex gap-4">
+                <button onClick={() => updateData({ waterConsumed: Math.max(0, (data?.waterConsumed || 0) - 250) })} className="bg-white border border-stone-200 p-3 rounded-2xl hover:bg-red-50 text-red-400"><Minus /></button>
+                <button onClick={() => updateData({ waterConsumed: (data?.waterConsumed || 0) + 250 })} className="bg-blue-500 text-white p-3 rounded-2xl hover:bg-blue-600 px-6 font-bold">+250ml</button>
             </div>
           </div>
         )}
 
         {activeTab === 'calories' && (
           <div className="flex flex-col gap-5 animate-in fade-in slide-in-from-right-4">
-            <div className="bg-stone-800 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden">
-                <div className="relative z-10">
-                   <div className="flex justify-between items-start mb-4">
-                      <div className="flex flex-col"><span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Diário</span><span className="text-2xl font-black">{calorieBudget} <span className="text-xs text-stone-400">kcal</span></span></div>
-                      <div className="bg-white/10 px-3 py-1 rounded-full text-[10px] font-bold uppercase">{FITNESS_GOALS[data?.fitnessGoal || 'maintain'].label}</div>
-                   </div>
-                   <div className="h-2 w-full bg-white/10 rounded-full mb-2"><div className={`h-full rounded-full transition-all duration-700 ${currentNetCalories > calorieBudget ? 'bg-red-500' : 'bg-orange-500'}`} style={{ width: `${caloriePercent}%` }} /></div>
-                   <div className="flex justify-between text-[10px] font-bold text-stone-400"><span>{currentNetCalories}kcal</span><span className={caloriesRemaining < 0 ? 'text-red-400' : 'text-green-400'}>{caloriesRemaining < 0 ? `Restam: ${caloriesRemaining}` : `Excedido: ${Math.abs(caloriesRemaining)}`}</span></div>
+            <div className="bg-stone-800 text-white rounded-2xl p-5 shadow-lg relative">
+                <div className="flex justify-between items-end mb-4">
+                   <div className="flex flex-col"><span className="text-[10px] font-black uppercase text-stone-400">Meta</span><span className="text-2xl font-black">{calorieBudget} kcal</span></div>
+                   <div className="text-[10px] font-bold text-stone-400">Restam: {caloriesRemaining}</div>
                 </div>
+                <div className="h-2 w-full bg-white/10 rounded-full"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${caloriePercent}%` }} /></div>
             </div>
-
-            <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100">
-              <div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2 text-orange-600"><Dumbbell size={16} /><span className="text-xs font-black uppercase tracking-tighter">Atividade Física</span></div><div className="bg-white px-2 py-1 rounded-lg border border-orange-100 text-[10px] font-black text-orange-600">-{caloriesOut} kcal</div></div>
-              <div className="relative"><input type="number" placeholder="Minutos" value={data?.workoutMinutes || ''} onChange={e => updateData({ workoutMinutes: parseInt(e.target.value) || 0 })} className="w-full bg-white border border-stone-200 rounded-xl p-2 pl-8 text-sm outline-none focus:border-orange-300" /><Zap size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-orange-300" /></div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2 text-stone-500"><Utensils size={14} /><span className="text-xs font-black uppercase tracking-tighter">Dieta</span></div><div className="text-[10px] font-black text-stone-400">+{caloriesIn} kcal</div></div>
-              <div className="flex flex-col gap-2 mb-4 max-h-[140px] overflow-y-auto custom-scrollbar pr-1">
-                {data?.foodLog && data.foodLog.length > 0 ? data.foodLog.map(item => (
-                    <div key={item.id} className="group flex items-center justify-between bg-white border border-stone-100 p-2 pl-3 rounded-xl text-xs shadow-sm hover:border-orange-200 transition-all">
-                      <div className="flex flex-col"><span className="font-bold text-stone-700">{item.name}</span><span className="text-[9px] text-stone-400 uppercase">{item.calories} kcal</span></div>
-                      <button onClick={() => updateData({ foodLog: (data?.foodLog || []).filter(f => f.id !== item.id) })} className="p-2 text-stone-300 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
-                    </div>
-                  )) : <div className="flex flex-col items-center justify-center py-6 text-stone-300 border-2 border-dashed border-stone-100 rounded-2xl"><Utensils size={24} className="mb-1 opacity-50" /><p className="text-[10px] font-bold">Sem registros.</p></div>}
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-2">
+                <input placeholder="Alimento..." value={foodName} onChange={e => { setFoodName(e.target.value); setAiError(null); }} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl p-2 text-sm outline-none" />
+                <div className="relative w-24">
+                  <input type="number" placeholder="kcal" value={foodCals} onChange={e => setFoodCals(e.target.value)} className={`w-full bg-stone-50 border border-stone-200 rounded-xl p-2 pr-8 text-sm outline-none ${isEstimating ? 'animate-pulse' : ''}`} />
+                  <button onClick={estimateCaloriesWithAI} disabled={isEstimating || !foodName.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400">
+                    {isEstimating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  </button>
+                </div>
+                <button onClick={addFood} className="bg-orange-500 text-white p-2 rounded-xl"><Plus /></button>
               </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <input placeholder="Alimento..." value={foodName} onChange={e => { setFoodName(e.target.value); setAiError(null); }} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl p-2 text-sm outline-none focus:border-orange-300" />
-                  <div className="relative w-24">
-                    <input type="number" placeholder="kcal" value={foodCals} onChange={e => setFoodCals(e.target.value)} className={`w-full bg-stone-50 border border-stone-200 rounded-xl p-2 pr-8 text-sm outline-none focus:border-orange-300 ${isEstimating ? 'animate-pulse' : ''}`} />
-                    <button onClick={estimateCaloriesWithAI} disabled={isEstimating || !foodName.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 hover:text-orange-600 disabled:opacity-30">
-                      {isEstimating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                    </button>
-                  </div>
-                  <button onClick={addFood} className="bg-orange-500 text-white p-2 rounded-xl hover:bg-orange-600 transition-all shadow-md active:scale-95"><Plus size={20} /></button>
-                </div>
-                {aiError && <div className="flex items-center gap-1 text-[10px] text-red-500 font-bold mt-1 animate-in fade-in slide-in-from-top-1"><AlertCircle size={10} /> {aiError}</div>}
+              {aiError && <div className="text-[10px] text-red-500 font-bold flex items-center gap-1"><AlertCircle size={10} /> {aiError}</div>}
+              <div className="flex flex-col gap-2 max-h-[140px] overflow-y-auto">
+                {data?.foodLog?.map(item => (
+                    <div key={item.id} className="flex items-center justify-between bg-white border border-stone-100 p-2 px-3 rounded-xl text-xs">
+                        <span className="font-bold">{item.name} ({item.calories} kcal)</span>
+                        <button onClick={() => updateData({ foodLog: data.foodLog.filter(f => f.id !== item.id) })} className="text-stone-300 hover:text-red-500"><Trash2 size={14} /></button>
+                    </div>
+                ))}
               </div>
             </div>
           </div>
@@ -365,17 +324,16 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
 
         {activeTab === 'history' && (
           <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
-            {data?.history && data.history.length > 0 ? data.history.map((entry) => (
-                <div key={entry.date} className="bg-white border border-stone-100 rounded-2xl p-4 shadow-sm relative">
-                    <button onClick={() => updateData({ history: data.history.filter(h => h.date !== entry.date) })} className="absolute top-2 right-2 p-1 text-stone-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
-                    <div className="flex justify-between items-center mb-3"><span className="text-[10px] font-black text-stone-400 uppercase">{new Date(entry.date).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span><span className="text-[10px] font-black bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">IMC {entry.bmi.toFixed(1)}</span></div>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="flex flex-col"><span className="text-[8px] text-stone-400 uppercase font-black">Peso</span><span className="text-xs font-black text-stone-700">{entry.weight}kg</span></div>
-                        <div className="flex flex-col"><span className="text-[8px] text-stone-400 uppercase font-black">Água</span><span className="text-xs font-black text-blue-500">{entry.water / 1000}L</span></div>
-                        <div className="flex flex-col"><span className="text-[8px] text-stone-400 uppercase font-black">Cal.</span><span className={`text-xs font-black ${entry.caloriesIn > (entry.targetCalorie || 2000) ? 'text-red-500' : 'text-green-500'}`}>{entry.caloriesIn}</span></div>
-                    </div>
-                </div>
-            )) : <div className="flex flex-col items-center justify-center py-12 text-stone-300 border-2 border-dashed border-stone-100 rounded-2xl"><History size={32} className="mb-2 opacity-50" /><p className="text-xs font-bold">Sem histórico.</p></div>}
+             {data?.history?.length ? data.history.map(h => (
+               <div key={h.date} className="bg-white border border-stone-100 rounded-2xl p-4 text-xs">
+                  <div className="flex justify-between mb-2"><span className="font-black text-stone-400">{h.date}</span><span className="font-bold">IMC {h.bmi.toFixed(1)}</span></div>
+                  <div className="grid grid-cols-3 text-center font-bold">
+                    <div>{h.weight}kg</div>
+                    <div>{h.water/1000}L</div>
+                    <div className="text-orange-500">{h.caloriesIn}kcal</div>
+                  </div>
+               </div>
+             )) : <div className="text-center py-12 text-stone-300 font-bold italic">Sem histórico.</div>}
           </div>
         )}
       </div>
