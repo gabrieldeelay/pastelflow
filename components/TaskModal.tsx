@@ -25,9 +25,18 @@ const TEXT_COLORS = [
 ];
 
 const COMMON_EMOJIS = [
-  '😀', '😂', '🥰', '😎', '🤔', '😭', '👍', '👎', '🔥', '✨', '✅', '❌', '❤️', '🚀',
-  '💼', '🏢', '💻', '🖥️', '⌨️', '🖱️', '📱', '🔋', '💡', '⚙️', '🛠️', '🔧', '🔨',
-  '📄', '📝', '📋', '📁', '📂', '📑', '📎', '📌', '📅', '📆', '⏰', '⌛', '🎯', '📊', '📈', '📉'
+  // Favoritos / Gerais
+  '😀', '😂', '🥰', '😎', '🤔', '😭', '👍', '👎', '🔥', '✨', '✅', '❌', '❤️', '🚀', '🎯', '💡', '🔔', '⭐',
+  // Trabalho e Escritório
+  '💼', '🏢', '🏦', '🏬', '🏭', '🏗️', '👔', '🤝', '👤', '👥', '👨‍💻', '👩‍💻', '👨‍💼', '👩‍💼',
+  // Workflow e Ferramentas
+  '⚙️', '🛠️', '🔧', '🔨', '⚒️', '⛏️', '⛓️', '🪜', '🔩', '⚖️', '🧭', '🗝️', '🔑', '🔒', '🔓', '🚧',
+  // Tecnologia e Dispositivos
+  '💻', '🖥️', '⌨️', '🖱️', '📱', '📲', '📡', '🔋', '🔌', '📟', '📠', '💾', '💿', '📀', '🌐', '🛰️', '🧪', '🧬', '🤖',
+  // Documentos e Organização
+  '📄', '📝', '📋', '📁', '📂', '📑', '📎', '📌', '📍', '📏', '📐', '📒', '📔', '📓', '📕', '📖', '🔖', '📰', '🗂️', '🗃️', '🗄️', '🗑️', '📦', '🏷️',
+  // Tempo e Análise
+  '📅', '📆', '⏰', '⌛', '⏳', '⏲️', '🕰️', '📊', '📈', '📉', '🔍', '🔎', '💰', '💸'
 ];
 
 // Generate UUID helper
@@ -131,7 +140,7 @@ const RichEditor: React.FC<RichEditorProps> = ({ initialContent, onChange, place
              <Smile size={14} />
           </button>
           {showEmojiPicker && (
-            <div className="absolute top-full left-0 mt-1 bg-white border border-stone-200 shadow-xl rounded-lg p-2 grid grid-cols-5 gap-1 w-48 max-h-32 overflow-y-auto custom-scrollbar">
+            <div className="absolute top-full left-0 mt-1 bg-white border border-stone-200 shadow-xl rounded-lg p-2 grid grid-cols-5 gap-1 w-52 max-h-48 overflow-y-auto custom-scrollbar">
               {COMMON_EMOJIS.map((emoji) => (
                 <button 
                   key={emoji} 
