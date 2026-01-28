@@ -7,7 +7,6 @@ import {
   Target, User, TrendingDown, TrendingUp, Equal, AlertCircle, Clock
 } from 'lucide-react';
 import { FitnessData, FitnessHistoryEntry } from '../types';
-// Import GoogleGenAI from @google/genai
 import { GoogleGenAI } from "@google/genai";
 
 interface Props {
@@ -56,14 +55,12 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
   const widgetRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
-  // Sincroniza posição inicial vinda do perfil de forma segura
   useEffect(() => {
     if (initialPosition) {
       setPosition(initialPosition);
     }
   }, [initialPosition]);
 
-  // "Mecanismo de Resgate": Garante que o widget nunca inicie ou fique fora da tela
   useEffect(() => {
     const ensureVisible = () => {
       if (!widgetRef.current) return;
@@ -71,7 +68,7 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
       const winW = window.innerWidth;
       const winH = window.innerHeight;
       const margin = 25;
-      const w = 340; // Largura fixa do widget
+      const w = 340;
       const h = widgetRef.current.offsetHeight || 500;
 
       setPosition(prev => {
@@ -79,11 +76,8 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
         let ny = prev.y;
         let changed = false;
 
-        // Se estiver muito à direita ou abaixo
         if (nx + w > winW) { nx = Math.max(margin, winW - w - margin); changed = true; }
         if (ny + h > winH) { ny = Math.max(margin, winH - h - margin); changed = true; }
-        
-        // Se estiver muito à esquerda ou acima
         if (nx < margin) { nx = margin; changed = true; }
         if (ny < margin) { ny = margin; changed = true; }
 
@@ -95,7 +89,6 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
       });
     };
 
-    // Executa após um pequeno delay para o layout estabilizar
     const timer = setTimeout(ensureVisible, 300);
     window.addEventListener('resize', ensureVisible);
     return () => {
@@ -198,7 +191,6 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
     setAiError(null);
 
     try {
-      // Fix: Follow initialization rules for GoogleGenAI
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -206,26 +198,26 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
         REGRAS:
         1. Se for um alimento real, retorne APENAS o número médio de calorias.
         2. Se NÃO for um alimento comestível (ex: 'pedra', 'carro', números aleatórios como '523525', nomes de pessoas, objetos), retorne obrigatoriamente o dígito '0'.
-        3. Nunca adicione texto, explicações ou unidades de medida.`,
+        3. Nunca adicione texto, explicações ou unidades de medida. Retorne apenas o número bruto.`,
         config: {
-          systemInstruction: "Você é um assistente nutricional rigoroso. Sua única saída permitida é um número inteiro. Se a entrada não fizer sentido como alimento, o número deve ser 0.",
+          systemInstruction: "Você é um assistente nutricional rigoroso. Sua única saída permitida é um número inteiro. Se a entrada não fizer sentido como alimento, retorne 0.",
           temperature: 0.1,
         }
       });
 
-      // Fix: Correct Method for Extracting Text Output (use .text property)
       const resultText = response.text?.trim() || "0";
-      const val = parseInt(resultText.replace(/\D/g, '')) || 0;
+      const cleanedValue = resultText.replace(/[^0-9]/g, '');
+      const val = parseInt(cleanedValue) || 0;
       
       if (val > 0) {
         setFoodCals(val.toString());
       } else {
-        setAiError(`"${input}" não é um alimento válido.`);
+        setAiError(`"${input}" não é um alimento reconhecido.`);
         setFoodCals('');
       }
     } catch (error: any) {
       console.error("Erro na Gemini API:", error);
-      setAiError("IA offline. Tente novamente.");
+      setAiError("IA offline. Tente novamente mais tarde.");
     } finally {
       setIsEstimating(false);
     }
@@ -369,9 +361,8 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
                   <span className="text-[10px] font-bold text-orange-400">-{caloriesOut} kcal</span>
                </div>
                <div className="relative">
-                  <input type="number" placeholder="Minutos de treino hoje..." value={data?.workoutMinutes || ''} onChange={e => updateData({ workoutMinutes: parseInt(e.target.value) || 0 })} className="w-full bg-white border border-stone-200 rounded-xl p-2 pl-8 text-sm outline-none focus:border-orange-300" />
-                  {/* Fix: Import Clock from lucide-react */}
-                  <Clock size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-orange-300" />
+                  <input type="number" placeholder="Minutos de treino..." value={data?.workoutMinutes || ''} onChange={e => updateData({ workoutMinutes: parseInt(e.target.value) || 0 })} className="w-full bg-white border border-stone-200 rounded-xl p-3 pl-10 text-sm outline-none focus:border-orange-300" />
+                  <Clock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-300" />
                </div>
             </div>
 
@@ -379,15 +370,17 @@ const FitnessWidget: React.FC<Props> = ({ data, onUpdate, onRemove, initialPosit
               <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest flex items-center gap-2">
                  <Utensils size={14} /> Refeições
               </label>
-              <div className="flex gap-2">
-                <input placeholder="Ex: Maçã, Pizza..." value={foodName} onChange={e => { setFoodName(e.target.value); setAiError(null); }} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl p-2 text-sm outline-none focus:border-stone-400 transition-all" />
-                <div className="relative w-24">
-                  <input type="number" placeholder="kcal" value={foodCals} onChange={e => setFoodCals(e.target.value)} className={`w-full bg-stone-50 border border-stone-200 rounded-xl p-2 pr-8 text-sm outline-none focus:border-stone-400 ${isEstimating ? 'animate-pulse' : ''}`} />
-                  <button onClick={estimateCaloriesWithAI} disabled={isEstimating || !foodName.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 hover:text-orange-600 transition-colors">
-                    {isEstimating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input placeholder="Ex: Maçã, Pizza..." value={foodName} onChange={e => { setFoodName(e.target.value); setAiError(null); }} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl p-3 text-sm outline-none focus:border-stone-400 transition-all" />
+                <div className="flex gap-2">
+                  <div className="relative w-40">
+                    <input type="number" placeholder="kcal" value={foodCals} onChange={e => setFoodCals(e.target.value)} className={`w-full bg-stone-50 border border-stone-200 rounded-xl p-3 pr-10 text-sm outline-none focus:border-stone-400 font-bold ${isEstimating ? 'animate-pulse' : ''}`} />
+                    <button onClick={estimateCaloriesWithAI} disabled={isEstimating || !foodName.trim()} className="absolute right-3 top-1/2 -translate-y-1/2 text-orange-400 hover:text-orange-600 transition-colors">
+                      {isEstimating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    </button>
+                  </div>
+                  <button onClick={addFood} className="bg-orange-500 text-white p-3 rounded-xl hover:bg-orange-600 active:scale-95 transition-all shadow-md"><Plus size={20} /></button>
                 </div>
-                <button onClick={addFood} className="bg-orange-500 text-white p-2 rounded-xl hover:bg-orange-600 active:scale-95 transition-all"><Plus /></button>
               </div>
               {aiError && <div className="text-[10px] text-red-500 font-bold flex items-center gap-1 animate-in fade-in slide-in-from-top-1"><AlertCircle size={10} /> {aiError}</div>}
               <div className="flex flex-col gap-2 max-h-[140px] overflow-y-auto custom-scrollbar">
