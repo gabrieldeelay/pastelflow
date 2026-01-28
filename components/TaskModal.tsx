@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, CheckSquare, AlignLeft, Link as LinkIcon, Trash2, Send, Check, ChevronDown, Pencil, ExternalLink, Save, Bold, Italic, Underline, Type, Smile, PlusSquare, Cloud, CloudOff, Loader2 } from 'lucide-react';
 import { Task, PastelColor, Profile, Attachment } from '../types';
@@ -25,7 +24,11 @@ const TEXT_COLORS = [
   { label: 'Laranja', color: '#ea580c' },// Orange 600
 ];
 
-const COMMON_EMOJIS = ['😀', '😂', '🥰', '😎', '🤔', '😭', '👍', '👎', '🔥', '✨', '✅', '❌', '❤️', '🚀'];
+const COMMON_EMOJIS = [
+  '😀', '😂', '🥰', '😎', '🤔', '😭', '👍', '👎', '🔥', '✨', '✅', '❌', '❤️', '🚀',
+  '💼', '🏢', '💻', '🖥️', '⌨️', '🖱️', '📱', '🔋', '💡', '⚙️', '🛠️', '🔧', '🔨',
+  '📄', '📝', '📋', '📁', '📂', '📑', '📎', '📌', '📅', '📆', '⏰', '⌛', '🎯', '📊', '📈', '📉'
+];
 
 // Generate UUID helper
 const getUUID = () => {
